@@ -33,8 +33,20 @@
 
 ## Device acceptance (manual)
 - [ ] Android TV: DPAD focus, back navigation, channel zapping, EPG scrolling, and long playlist performance.
-- [ ] Tablet: current landscape layout, split-screen/resizing where supported, touch targets, and playback lifecycle. Portrait adaptation is a Stage 1 deliverable because the current manifest still requests landscape.
-- [ ] Phone: current landscape playback, touch navigation, background/foreground transitions, and playback lifecycle. Portrait adaptation is a Stage 1 deliverable.
+- [ ] Tablet: portrait and landscape layouts, adaptive navigation rail, split-screen/resizing across window-width breakpoints, touch targets, and playback lifecycle.
+- [ ] Phone: portrait and landscape layouts, bottom navigation, touch navigation, background/foreground transitions, and playback lifecycle.
 - [ ] Verify notification permission and foreground recording behavior on Android 13+.
 
 A Stage 0 release is not considered fully accepted until automated gates pass and the manual device checklist has been completed on representative devices.
+
+
+## Stage 1 + Stage 2 acceptance
+- [ ] Back dismisses active dialogs before exiting playback or a nested screen.
+- [ ] Tablet Live TV uses a two-pane channel list and programme preview at supported widths.
+- [ ] Smart channel search, category filtering, and sorting remain responsive with 10,000 channels.
+- [ ] Quick zapping reuses the playback engine and supports DPAD/channel keys.
+- [ ] Player HUD shows current and next EPG programmes when available.
+- [ ] Recent channels persist and remain capped.
+- [ ] Favorite groups persist across restart and refresh.
+- [ ] Channel locks require the local parental PIN in all playback entry points.
+- [ ] Room migration 2 → 3 preserves existing app data.

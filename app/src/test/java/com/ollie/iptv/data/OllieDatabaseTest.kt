@@ -36,9 +36,21 @@ class OllieDatabaseTest {
             assertEquals("News", database.dao().allStreams().first().single().name)
             assertEquals(1, database.dao().scheduledRecordings().first().size)
 
+            val streamId = database.dao().allStreams().first().single().id
+            val groupId = database.dao().insertFavoriteGroup(FavoriteGroupEntity(name = "News"))
+            database.dao().insertFavoriteGroupChannel(FavoriteGroupChannelEntity(groupId, streamId))
+            database.dao().setFavorite(streamId, true)
+            assertEquals("News", database.dao().favoriteGroupStreams(groupId).first().single().name)
+            database.dao().recordChannelHistory(ChannelHistoryEntity(streamId, 1234L))
+            assertEquals("News", database.dao().recentLiveStreams(12).first().single().name)
+            database.dao().lockChannel(ChannelLockEntity(streamId, 1235L))
+            assertEquals(true, database.dao().isChannelLocked(streamId))
+
             database.dao().deletePlaylistAndStreams(playlistId)
             assertEquals(0, database.dao().allStreams().first().size)
             assertEquals(null, database.dao().playlist(playlistId))
+            assertEquals(false, database.dao().isChannelLocked(streamId))
+            assertEquals(emptyList<StreamEntity>(), database.dao().recentLiveStreams(12).first())
         } finally {
             database.close()
         }
@@ -74,13 +86,16 @@ class OllieDatabaseTest {
                 streamUrl TEXT NOT NULL, localPath TEXT NOT NULL, status TEXT NOT NULL,
                 startedAt INTEGER NOT NULL, finishedAt INTEGER NOT NULL, error TEXT NOT NULL)""")
             old.execSQL("INSERT INTO playlists (name,type,sourceUrl,serverUrl,username,password,epgUrl,createdAt) VALUES ('Legacy','M3U','','','','','',123)")
+            old.execSQL("""INSERT INTO streams
+                (id,playlistId,name,url,category,logo,tvgId,kind,xtreamId,isFavorite,catchup,catchupDays)
+                VALUES ('legacy-stream',1,'Legacy channel','https://example.test/live.ts','News','','legacy.epg','LIVE',-1,1,0,0)""")
             old.execSQL("PRAGMA user_version = 1")
         } finally {
             old.close()
         }
 
         val migrated = Room.databaseBuilder(context, OllieDatabase::class.java, name)
-            .addMigrations(OllieDatabase.MIGRATION_1_2)
+            .addMigrations(OllieDatabase.MIGRATION_1_2, OllieDatabase.MIGRATION_2_3)
             .allowMainThreadQueries().build()
         try {
             val playlist = runBlocking { migrated.dao().playlist(1L) }
@@ -88,6 +103,10 @@ class OllieDatabaseTest {
             assertEquals("Legacy", playlist?.name)
             assertEquals(true, playlist?.enabled)
             assertEquals(0, playlist?.sortOrder)
+            assertEquals("Legacy channel", runBlocking { migrated.dao().stream("legacy-stream")?.name })
+            assertEquals(1, runBlocking { migrated.dao().favorites().first().size })
+            assertEquals(emptyList<FavoriteGroupEntity>(), runBlocking { migrated.dao().favoriteGroups().first() })
+            assertEquals(emptyList<ChannelLockEntity>(), runBlocking { migrated.dao().channelLocks().first() })
         } finally {
             migrated.close()
             context.deleteDatabase(name)

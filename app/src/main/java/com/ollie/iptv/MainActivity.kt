@@ -6,10 +6,10 @@ import java.io.File
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,20 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.nativeKeyCode
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import androidx.work.Constraints
 import androidx.work.NetworkType
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -52,15 +41,22 @@ import com.ollie.iptv.recording.ScheduledRecordingWorker
 import androidx.work.WorkManager
 import com.ollie.iptv.data.PlaylistRefreshWorker
 import java.util.concurrent.TimeUnit
-import androidx.compose.ui.viewinterop.AndroidView
 import com.ollie.iptv.data.*
 import com.ollie.iptv.recording.RecordingService
 import com.ollie.iptv.ui.MainViewModel
+import com.ollie.iptv.ui.live.LiveTvScreen
+import com.ollie.iptv.ui.live.ChannelSecurityDialog
+import com.ollie.iptv.ui.live.FavoriteGroupPickerDialog
+import com.ollie.iptv.navigation.ScreenTab
+import com.ollie.iptv.navigation.OllieNavigationItem
+import com.ollie.iptv.player.ui.OlliePlayer
+import com.ollie.iptv.ui.adaptive.OllieWindowClass
+import com.ollie.iptv.ui.adaptive.ollieWindowClassForWidth
+import com.ollie.iptv.ui.adaptive.ollieUsesTwoPaneLiveLayout
+import com.ollie.iptv.ui.theme.Ink
+import com.ollie.iptv.ui.theme.Panel
+import com.ollie.iptv.ui.theme.Muted
 
-private val Ink = Color(0xFF090B0E)
-private val Panel = Color(0xFF15191F)
-private val Muted = Color(0xFF929BA6)
-private enum class ScreenTab(val label: String) { LIVE("Live TV"), GUIDE("TV Guide"), MOVIES("Movies"), SERIES("Series"), FAVORITES("Favorites"), RECORDINGS("Recordings"), PLAYLISTS("Playlists") }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,6 +82,19 @@ class MainActivity : ComponentActivity() {
 private fun OllieApp(vm: MainViewModel = viewModel()) {
     val context = LocalContext.current
     val live by vm.live.collectAsState(initial = emptyList())
+    val filteredLive by vm.filteredLive.collectAsState()
+    val liveCategories by vm.liveCategories.collectAsState()
+    val liveSearch by vm.liveSearch.collectAsState()
+    val liveCategory by vm.liveCategory.collectAsState()
+    val liveSort by vm.liveSort.collectAsState()
+    val recentChannels by vm.recentChannels.collectAsState(initial = emptyList())
+    val lockedChannelIds by vm.lockedChannelIds.collectAsState()
+    val favoriteGroups by vm.favoriteGroups.collectAsState(initial = emptyList())
+    val selectedFavoriteGroup by vm.selectedFavoriteGroup.collectAsState()
+    val selectedFavoriteGroupStreams by vm.selectedFavoriteGroupStreams.collectAsState()
+    val securityRequest by vm.securityRequest.collectAsState()
+    val securityError by vm.securityError.collectAsState()
+    val previewProgrammes by vm.currentProgrammes.collectAsState(initial = emptyList())
     val movies by vm.movies.collectAsState(initial = emptyList())
     val series by vm.series.collectAsState(initial = emptyList())
     val favorites by vm.favorites.collectAsState(initial = emptyList())
@@ -98,13 +107,39 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
     val selected by vm.selected.collectAsState()
     val message by vm.message.collectAsState()
     val busy by vm.busy.collectAsState()
-    var tab by remember { mutableStateOf(ScreenTab.LIVE) }
-    var dialog by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("All channels") }
-    var search by remember { mutableStateOf("") }
-    var selectedSeries by remember { mutableStateOf<StreamEntity?>(null) }
-    var catchupTarget by remember { mutableStateOf<StreamEntity?>(null) }
-    var scheduleDialog by remember { mutableStateOf(false) }
+    var tab by rememberSaveable { mutableStateOf(ScreenTab.LIVE) }
+    var dialog by rememberSaveable { mutableStateOf("") }
+    var search by rememberSaveable { mutableStateOf("") }
+    var groupTargetStreamId by rememberSaveable { mutableStateOf<String?>(null) }
+    var groupPickerVisible by rememberSaveable { mutableStateOf(false) }
+    var createGroupVisible by rememberSaveable { mutableStateOf(false) }
+    var newGroupName by rememberSaveable { mutableStateOf("") }
+    var deleteGroupTarget by remember { mutableStateOf<FavoriteGroupEntity?>(null) }
+    var selectedSeriesId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedSeries = series.firstOrNull { it.id == selectedSeriesId }
+    LaunchedEffect(search) { vm.setLiveSearch(search) }
+    var catchupTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    val catchupTarget = live.firstOrNull { it.id == catchupTargetId }
+    var scheduleDialog by rememberSaveable { mutableStateOf(false) }
+    val player by vm.player.collectAsState()
+
+    BackHandler(
+        enabled = selected != null || dialog.isNotBlank() || catchupTargetId != null ||
+            scheduleDialog || selectedSeriesId != null || groupPickerVisible || createGroupVisible ||
+            deleteGroupTarget != null || securityRequest != null
+    ) {
+        when {
+            securityRequest != null -> vm.cancelChannelSecurity()
+            deleteGroupTarget != null -> deleteGroupTarget = null
+            groupPickerVisible -> groupPickerVisible = false
+            createGroupVisible -> createGroupVisible = false
+            catchupTargetId != null -> catchupTargetId = null
+            scheduleDialog -> scheduleDialog = false
+            dialog.isNotBlank() -> dialog = ""
+            selected != null -> vm.stopPlayback()
+            selectedSeriesId != null -> selectedSeriesId = null
+        }
+    }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -122,14 +157,15 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
         secondary = Color(0xFFB6C0CA)
     )) {
         Surface(Modifier.fillMaxSize(), color = Ink) {
-            if (selected != null) {
+            if (selected != null && player != null) {
                 OlliePlayer(
+                    player = player!!,
                     stream = selected!!,
                     programmes = vm.programmes.collectAsState().value,
                     onBack = vm::stopPlayback,
                     channels = live,
-                    onZap = vm::play,
-                    onCatchup = { catchupTarget = selected },
+                    onZap = vm::requestPlay,
+                    onCatchup = { catchupTargetId = selected?.id },
                     onSchedule = { scheduleDialog = true },
                     onRecord = {
                         val intent = Intent(context, RecordingService::class.java).apply {
@@ -174,29 +210,42 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                 }
                 catchupTarget?.let { target ->
                     CatchupDialog(
-                        onDismiss = { catchupTarget = null },
+                        onDismiss = { catchupTargetId = null },
                         onSubmit = { date, time, duration ->
-                            catchupTarget = null
+                            catchupTargetId = null
                             vm.playCatchup(target, date, time, duration)
                         }
                     )
                 }
             } else {
-                Row(Modifier.fillMaxSize().padding(26.dp)) {
-                    Column(Modifier.width(220.dp).fillMaxHeight()) {
-                        Text("OLLIE", fontSize = 30.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                        Text("TELEVISION", color = Muted, fontSize = 10.sp, letterSpacing = 3.sp)
-                        Spacer(Modifier.height(28.dp))
-                        ScreenTab.values().forEach { item ->
-                            NavigationItem(item, tab == item) { tab = item }
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val windowClass = ollieWindowClassForWidth(maxWidth.value.toInt())
+                    val compact = windowClass == OllieWindowClass.COMPACT
+                    val medium = windowClass == OllieWindowClass.MEDIUM
+                    Row(Modifier.fillMaxSize().padding(if (compact) 14.dp else 26.dp)) {
+                        if (!compact) {
+                            Column(Modifier.width(if (medium) 76.dp else 220.dp).fillMaxHeight()) {
+                                if (!medium) {
+                                    Text("OLLIE", fontSize = 30.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                                    Text("TELEVISION", color = Muted, fontSize = 10.sp, letterSpacing = 3.sp)
+                                    Spacer(Modifier.height(28.dp))
+                                } else {
+                                    Spacer(Modifier.height(8.dp))
+                                }
+                                ScreenTab.values().forEach { item ->
+                                    OllieNavigationItem(item, tab == item, compact = medium) { tab = item }
+                                }
+                                Spacer(Modifier.weight(1f))
+                                if (!medium) Text("OLLIE TV  •  0.4.1", color = Muted, fontSize = 10.sp)
+                            }
                         }
-                        Spacer(Modifier.weight(1f))
-                        Text("OLLIE TV  •  0.4.0", color = Muted, fontSize = 10.sp)
-                    }
-                    Column(Modifier.fillMaxSize().padding(start = 26.dp)) {
+                        Column(Modifier.fillMaxSize().padding(
+                            start = if (compact) 0.dp else 26.dp,
+                            bottom = if (compact) 78.dp else 0.dp
+                        )) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(tab.label, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+                                Text(tab.label, fontSize = if (compact) 22.sp else 27.sp, fontWeight = FontWeight.Bold)
                                 Text(when(tab) {
                                     ScreenTab.LIVE -> "${live.size} channels"
                                     ScreenTab.MOVIES -> "${movies.size} movies"
@@ -207,14 +256,18 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                     ScreenTab.PLAYLISTS -> "${playlists.size} sources"
                                 }, color = Muted, fontSize = 13.sp)
                             }
-                            OutlinedButton(onClick = { dialog = "add" }) {
-                                Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add source")
+                            if (compact) {
+                                IconButton(onClick = { dialog = "add" }) { Icon(Icons.Default.Add, "Add source") }
+                            } else {
+                                OutlinedButton(onClick = { dialog = "add" }) {
+                                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add source")
+                                }
                             }
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(4.dp))
                             IconButton(onClick = { dialog = "epg" }) { Icon(Icons.Default.CalendarMonth, "Import EPG") }
                         }
                         Spacer(Modifier.height(14.dp))
-                        if (tab == ScreenTab.LIVE || tab == ScreenTab.GUIDE || tab == ScreenTab.MOVIES || tab == ScreenTab.SERIES || tab == ScreenTab.FAVORITES) {
+                        if (tab == ScreenTab.GUIDE || tab == ScreenTab.MOVIES || tab == ScreenTab.SERIES || tab == ScreenTab.FAVORITES) {
                             OutlinedTextField(
                                 value = search, onValueChange = { search = it },
                                 modifier = Modifier.fillMaxWidth().heightIn(max = 58.dp),
@@ -225,34 +278,82 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                         }
                         Spacer(Modifier.height(12.dp))
                         when (tab) {
-                            ScreenTab.LIVE -> {
-                                val categories = listOf("All channels") + live.map { it.category }.distinct().sorted()
-                                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                                    categories.take(7).forEach { cat ->
-                                        FilterChip(selected = category == cat, onClick = { category = cat }, label = { Text(cat) })
-                                    }
+                            ScreenTab.LIVE -> LiveTvScreen(
+                                channels = filteredLive,
+                                recentChannels = recentChannels,
+                                categories = liveCategories,
+                                selectedCategory = liveCategory,
+                                search = liveSearch,
+                                sortMode = liveSort,
+                                programmes = previewProgrammes,
+                                lockedChannelIds = lockedChannelIds,
+                                expandedLayout = ollieUsesTwoPaneLiveLayout(maxWidth.value.toInt()),
+                                onSearchChange = { search = it; vm.setLiveSearch(it) },
+                                onCategoryChange = vm::setLiveCategory,
+                                onSortChange = vm::setLiveSort,
+                                onPlay = vm::requestPlay,
+                                onFavorite = vm::toggleFavorite,
+                                onLockToggle = vm::requestChannelLockToggle,
+                                onAddToGroup = { stream ->
+                                    groupTargetStreamId = stream.id
+                                    groupPickerVisible = true
                                 }
-                                StreamList(live.filter { (category == "All channels" || it.category == category) && it.name.contains(search, true) },
-                                    onPlay = vm::play, onFavorite = vm::toggleFavorite)
-                            }
-                            ScreenTab.MOVIES -> StreamList(movies.filter { it.name.contains(search, true) }, vm::play, vm::toggleFavorite)
+                            )
+                            ScreenTab.MOVIES -> StreamList(movies.filter { it.name.contains(search, true) }, vm::requestPlay, vm::toggleFavorite)
                             ScreenTab.SERIES -> {
                                 if (selectedSeries == null) {
                                     SeriesList(series.filter { it.name.contains(search, true) }, onSelect = {
-                                        selectedSeries = it
+                                        selectedSeriesId = it.id
                                         vm.loadSeries(it)
                                     }, onFavorite = vm::toggleFavorite)
                                 } else {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        TextButton(onClick = { selectedSeries = null }) { Icon(Icons.Default.ArrowBack, null); Text("All series") }
+                                        TextButton(onClick = { selectedSeriesId = null }) { Icon(Icons.Default.ArrowBack, null); Text("All series") }
                                     }
-                                    StreamList(episodes, vm::play, vm::toggleFavorite)
+                                    StreamList(episodes, vm::requestPlay, vm::toggleFavorite)
                                 }
                             }
-                            ScreenTab.FAVORITES -> StreamList(favorites.filter { it.name.contains(search, true) }, vm::play, vm::toggleFavorite)
+                            ScreenTab.FAVORITES -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(
+                                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    FilterChip(
+                                        selected = selectedFavoriteGroup == null,
+                                        onClick = { vm.selectFavoriteGroup(null) },
+                                        label = { Text("All favorites") }
+                                    )
+                                    favoriteGroups.forEach { group ->
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            FilterChip(
+                                                selected = selectedFavoriteGroup == group.id,
+                                                onClick = { vm.selectFavoriteGroup(group.id) },
+                                                label = { Text(group.name) }
+                                            )
+                                            IconButton(
+                                                onClick = { deleteGroupTarget = group },
+                                                modifier = Modifier.size(34.dp)
+                                            ) { Icon(Icons.Default.DeleteOutline, "Delete ${group.name}", tint = Muted) }
+                                        }
+                                    }
+                                    TextButton(onClick = { newGroupName = ""; createGroupVisible = true }) {
+                                        Icon(Icons.Default.Add, null); Text("New group")
+                                    }
+                                }
+                                val visibleFavorites = if (selectedFavoriteGroup == null) favorites else selectedFavoriteGroupStreams
+                                StreamList(
+                                    visibleFavorites.filter { it.name.contains(search, true) },
+                                    onPlay = vm::requestPlay,
+                                    onFavorite = vm::toggleFavorite,
+                                    onRemoveFromGroup = selectedFavoriteGroup?.let { groupId ->
+                                        { stream -> vm.removeStreamFromFavoriteGroup(groupId, stream.id) }
+                                    }
+                                )
+                            }
                             ScreenTab.GUIDE -> GuideList(
                                 channels = live, programmes = guideProgrammes, query = search,
-                                dayOffset = guideDayOffset, onDayChange = vm::loadGuideDay, onPlay = vm::play
+                                dayOffset = guideDayOffset, onDayChange = vm::loadGuideDay, onPlay = vm::requestPlay
                             )
                             ScreenTab.PLAYLISTS -> PlaylistManagerList(
                                 playlists = playlists,
@@ -318,6 +419,19 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                         }
                         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
+                    }
+                    if (compact) {
+                        Row(
+                            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                                .background(Panel).horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 4.dp, vertical = 5.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            ScreenTab.values().forEach { item ->
+                                OllieNavigationItem(item, tab == item, bottom = true) { tab = item }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -334,30 +448,89 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
             dialog = ""; vm.importEpg(it)
         }
     }
-}
 
-@Composable
-private fun NavigationItem(tab: ScreenTab, selected: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, color = if (selected) Color(0xFF28313B) else Color.Transparent,
-        shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(when(tab) {
-                ScreenTab.LIVE -> Icons.Default.Tv
-                ScreenTab.GUIDE -> Icons.Default.CalendarMonth
-                ScreenTab.MOVIES -> Icons.Default.Movie
-                ScreenTab.SERIES -> Icons.Default.VideoLibrary
-                ScreenTab.FAVORITES -> Icons.Default.Star
-                ScreenTab.RECORDINGS -> Icons.Default.FiberManualRecord
-                ScreenTab.PLAYLISTS -> Icons.Default.PlaylistPlay
-            }, null, tint = if (selected) Color.White else Muted)
-            Spacer(Modifier.width(12.dp))
-            Text(tab.label, color = if (selected) Color.White else Muted, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-        }
+    securityRequest?.let { request ->
+        ChannelSecurityDialog(
+            request = request,
+            error = securityError,
+            onConfirm = vm::confirmChannelSecurity,
+            onDismiss = vm::cancelChannelSecurity
+        )
+    }
+
+    if (groupPickerVisible) {
+        FavoriteGroupPickerDialog(
+            groups = favoriteGroups,
+            onSelect = { group ->
+                groupTargetStreamId?.let { vm.addStreamToFavoriteGroup(group.id, it) }
+                groupTargetStreamId = null
+                groupPickerVisible = false
+            },
+            onCreate = {
+                groupPickerVisible = false
+                newGroupName = ""
+                createGroupVisible = true
+            },
+            onDismiss = {
+                groupPickerVisible = false
+                groupTargetStreamId = null
+            }
+        )
+    }
+
+    if (createGroupVisible) {
+        AlertDialog(
+            onDismissRequest = { createGroupVisible = false },
+            title = { Text("Create favorite group") },
+            text = {
+                OutlinedTextField(
+                    value = newGroupName,
+                    onValueChange = { newGroupName = it },
+                    label = { Text("Group name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = groupTargetStreamId
+                    vm.createFavoriteGroup(newGroupName, target)
+                    groupTargetStreamId = null
+                    createGroupVisible = false
+                }) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    createGroupVisible = false
+                    groupTargetStreamId = null
+                }) { Text("Cancel") }
+            }
+        )
+    }
+
+    deleteGroupTarget?.let { group ->
+        AlertDialog(
+            onDismissRequest = { deleteGroupTarget = null },
+            title = { Text("Delete favorite group?") },
+            text = { Text("The group \"${group.name}\" and its memberships will be deleted. Channels remain in your favorites.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteFavoriteGroup(group.id)
+                    deleteGroupTarget = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleteGroupTarget = null }) { Text("Cancel") } }
+        )
     }
 }
 
+
 @Composable
-private fun StreamList(items: List<StreamEntity>, onPlay: (StreamEntity) -> Unit, onFavorite: (StreamEntity) -> Unit) {
+private fun StreamList(
+    items: List<StreamEntity>,
+    onPlay: (StreamEntity) -> Unit,
+    onFavorite: (StreamEntity) -> Unit,
+    onRemoveFromGroup: ((StreamEntity) -> Unit)? = null
+) {
     if (items.isEmpty()) { EmptyState("Nothing here yet", "Add an M3U playlist or Xtream account."); return }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         items(items, key = { it.id }) { stream ->
@@ -374,6 +547,11 @@ private fun StreamList(items: List<StreamEntity>, onPlay: (StreamEntity) -> Unit
                     IconButton(onClick = { onFavorite(stream) }) {
                         Icon(if (stream.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
                             "Favorite", tint = if (stream.isFavorite) Color(0xFFFFD166) else Muted)
+                    }
+                    if (onRemoveFromGroup != null) {
+                        IconButton(onClick = { onRemoveFromGroup(stream) }) {
+                            Icon(Icons.Default.RemoveCircleOutline, "Remove from group", tint = Muted)
+                        }
                     }
                     Icon(Icons.Default.PlayArrow, null, tint = Muted)
                 }
@@ -752,253 +930,4 @@ private fun SimpleUrlDialog(title: String, label: String, onDismiss: () -> Unit,
         text = { OutlinedTextField(value, { value = it }, label = { Text(label) }, singleLine = true) },
         confirmButton = { TextButton(onClick = { onSubmit(value) }) { Text("Import") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
-}
-
-@Composable
-private fun OlliePlayer(
-    stream: StreamEntity,
-    programmes: List<ProgrammeEntity>,
-    channels: List<StreamEntity>,
-    onBack: () -> Unit,
-    onZap: (StreamEntity) -> Unit,
-    onRecord: () -> Unit,
-    onStopRecord: () -> Unit,
-    onSchedule: () -> Unit,
-    onCatchup: () -> Unit
-) {
-    val context = LocalContext.current
-    val player = remember(stream.url) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(stream.url))
-            prepare()
-            playWhenReady = true
-        }
-    }
-    var playbackError by remember { mutableStateOf<String?>(null) }
-    var hudVisible by remember { mutableStateOf(true) }
-    var position by remember { mutableLongStateOf(0L) }
-    var duration by remember { mutableLongStateOf(0L) }
-    var resizeMode by remember { mutableIntStateOf(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT) }
-    var audioLanguage by remember { mutableStateOf("Audio: Auto") }
-    var subtitlesEnabled by remember { mutableStateOf(true) }
-    val playerView = remember { mutableStateOf<PlayerView?>(null) }
-    val focusRequester = remember { FocusRequester() }
-    val channelIndex = channels.indexOfFirst { it.id == stream.id }
-
-    DisposableEffect(player) {
-        val listener = object : Player.Listener {
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                playbackError = error.message ?: "Playback failed"
-                hudVisible = true
-            }
-        }
-        player.addListener(listener)
-        onDispose {
-            player.removeListener(listener)
-            player.release()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        runCatching { focusRequester.requestFocus() }
-    }
-    LaunchedEffect(hudVisible) {
-        if (hudVisible) {
-            kotlinx.coroutines.delay(7000)
-            hudVisible = false
-        }
-    }
-    LaunchedEffect(player) {
-        while (true) {
-            position = player.currentPosition.coerceAtLeast(0L)
-            duration = player.duration.takeIf { it > 0L } ?: 0L
-            kotlinx.coroutines.delay(750)
-        }
-    }
-
-    val modifier = Modifier.fillMaxSize()
-        .focusRequester(focusRequester)
-        .onPreviewKeyEvent { event ->
-            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-            val code = event.key.nativeKeyCode
-            when (code) {
-                android.view.KeyEvent.KEYCODE_BACK,
-                android.view.KeyEvent.KEYCODE_ESCAPE -> {
-                    onBack()
-                    true
-                }
-                android.view.KeyEvent.KEYCODE_DPAD_CENTER,
-                android.view.KeyEvent.KEYCODE_ENTER,
-                android.view.KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                    if (!hudVisible) {
-                        hudVisible = true
-                        true
-                    } else false
-                }
-                android.view.KeyEvent.KEYCODE_DPAD_UP,
-                android.view.KeyEvent.KEYCODE_DPAD_DOWN,
-                android.view.KeyEvent.KEYCODE_DPAD_LEFT,
-                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    if (hudVisible) false
-                    else {
-                        hudVisible = true
-                        when (code) {
-                            android.view.KeyEvent.KEYCODE_DPAD_UP -> {
-                                if (channelIndex > 0) onZap(channels[channelIndex - 1])
-                            }
-                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                if (channelIndex >= 0 && channelIndex < channels.lastIndex) onZap(channels[channelIndex + 1])
-                            }
-                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
-                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                val end = player.duration
-                                player.seekTo(if (end > 0) (player.currentPosition + 10_000L).coerceAtMost(end) else player.currentPosition + 10_000L)
-                            }
-                        }
-                        true
-                    }
-                }
-                android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                    if (player.isPlaying) player.pause() else player.play()
-                    hudVisible = true
-                    true
-                }
-                android.view.KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); hudVisible = true; true }
-                android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); hudVisible = true; true }
-                else -> false
-            }
-        }
-        .focusable()
-
-    Box(modifier.background(Color.Black)) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    this.player = player
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                    resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    playerView.value = this
-                }
-            },
-            update = { view ->
-                view.player = player
-                view.resizeMode = resizeMode
-                playerView.value = view
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        if (hudVisible) {
-            Column(
-                Modifier.fillMaxWidth().align(Alignment.TopCenter)
-                    .background(Color(0xCC090D12)).padding(horizontal = 22.dp, vertical = 12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
-                    Column(Modifier.weight(1f)) {
-                        Text(stream.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        Text("${stream.category}  •  ${if (player.isPlaying) "PLAYING" else "PAUSED"}", color = Color(0xFFB7C2CC), fontSize = 11.sp)
-                    }
-                    TextButton(onClick = {
-                        val languages = player.currentTracks.groups
-                            .filter { it.type == C.TRACK_TYPE_AUDIO }
-                            .flatMap { group ->
-                                (0 until group.length).filter { group.isTrackSupported(it) }
-                                    .mapNotNull { group.getTrackFormat(it).language }
-                            }.distinct()
-                        if (languages.isNotEmpty()) {
-                            val next = languages[(languages.indexOf(player.trackSelectionParameters.preferredAudioLanguages.firstOrNull()).let { if (it < 0) 0 else (it + 1) % languages.size })]
-                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                                .setPreferredAudioLanguage(next).build()
-                            audioLanguage = "Audio: $next"
-                        } else audioLanguage = "Audio: unavailable"
-                    }) { Text(audioLanguage, color = Color.White, fontSize = 11.sp) }
-                    IconButton(onClick = {
-                        subtitlesEnabled = !subtitlesEnabled
-                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesEnabled).build()
-                    }) {
-                        Icon(Icons.Default.Subtitles, "Toggle subtitles", tint = if (subtitlesEnabled) Color.White else Muted)
-                    }
-                    IconButton(onClick = {
-                        resizeMode = when (resizeMode) {
-                            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        }
-                    }) { Icon(Icons.Default.AspectRatio, "Aspect ratio", tint = Color.White) }
-                }
-            }
-
-            Column(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(Color(0xE6090D12)).padding(horizontal = 24.dp, vertical = 16.dp)
-            ) {
-                programmes.firstOrNull()?.let { current ->
-                    Text("NOW  •  ${current.title}", color = Color.White, fontWeight = FontWeight.SemiBold)
-                    if (current.description.isNotBlank()) {
-                        Text(current.description, color = Color(0xFFB7C2CC), fontSize = 11.sp, maxLines = 2)
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(formatPlayerTime(position), color = Color.White, fontSize = 11.sp)
-                    LinearProgressIndicator(
-                        progress = { if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f },
-                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp).height(4.dp)
-                    )
-                    Text(if (duration > 0) formatPlayerTime(duration) else "LIVE", color = Color.White, fontSize = 11.sp)
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = { if (channelIndex > 0) onZap(channels[channelIndex - 1]) },
-                        enabled = channelIndex > 0
-                    ) { Icon(Icons.Default.SkipPrevious, "Previous channel") }
-                    Button(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
-                        Icon(if (player.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Play or pause")
-                        Spacer(Modifier.width(5.dp)); Text(if (player.isPlaying) "Pause" else "Play")
-                    }
-                    OutlinedButton(
-                        onClick = { if (channelIndex >= 0 && channelIndex < channels.lastIndex) onZap(channels[channelIndex + 1]) },
-                        enabled = channelIndex >= 0 && channelIndex < channels.lastIndex
-                    ) { Icon(Icons.Default.SkipNext, "Next channel") }
-                    OutlinedButton(onClick = { player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L)) }) {
-                        Icon(Icons.Default.Replay10, "Back 10 seconds")
-                    }
-                    OutlinedButton(onClick = { player.seekTo(player.currentPosition + 10_000L) }) {
-                        Icon(Icons.Default.Forward10, "Forward 10 seconds")
-                    }
-                    Spacer(Modifier.weight(1f))
-                    Button(onClick = onRecord) { Icon(Icons.Default.FiberManualRecord, null); Text("Record") }
-                    OutlinedButton(onClick = onSchedule) { Icon(Icons.Default.Schedule, null); Text("Schedule") }
-                    OutlinedButton(onClick = onStopRecord) { Icon(Icons.Default.Stop, null); Text("Stop") }
-                    if (stream.catchup && stream.xtreamId >= 0) {
-                        OutlinedButton(onClick = onCatchup) { Text("Catch-up") }
-                    }
-                }
-            }
-        }
-
-        playbackError?.let {
-            Surface(
-                Modifier.align(Alignment.Center).padding(24.dp),
-                color = Color(0xDD551111), shape = RoundedCornerShape(10.dp)
-            ) {
-                Text("Playback error: $it", color = Color.White, modifier = Modifier.padding(14.dp))
-            }
-        }
-    }
-}
-
-private fun formatPlayerTime(milliseconds: Long): String {
-    val total = (milliseconds / 1000L).coerceAtLeast(0L)
-    return if (total >= 3600L) {
-        "%02d:%02d:%02d".format(total / 3600L, (total / 60L) % 60L, total % 60L)
-    } else {
-        "%02d:%02d".format(total / 60L, total % 60L)
-    }
 }

@@ -60,3 +60,33 @@ data class RecordingEntity(
     @androidx.room.ColumnInfo(defaultValue = "0") val durationMinutes: Int = 0,
     val error: String = ""
 )
+
+
+@Entity(tableName = "favorite_groups", indices = [Index(value = ["name"], unique = true)])
+data class FavoriteGroupEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "favorite_group_channels",
+    primaryKeys = ["groupId", "streamId"],
+    indices = [Index("streamId")]
+)
+data class FavoriteGroupChannelEntity(
+    val groupId: Long,
+    val streamId: String
+)
+
+@Entity(tableName = "channel_history", indices = [Index("lastPlayedAt")])
+data class ChannelHistoryEntity(
+    @PrimaryKey val streamId: String,
+    val lastPlayedAt: Long
+)
+
+@Entity(tableName = "channel_locks")
+data class ChannelLockEntity(
+    @PrimaryKey val streamId: String,
+    val lockedAt: Long = System.currentTimeMillis()
+)

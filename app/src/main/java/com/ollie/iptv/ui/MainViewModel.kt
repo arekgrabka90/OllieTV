@@ -5,12 +5,66 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
 import com.ollie.iptv.data.*
+import androidx.media3.exoplayer.ExoPlayer
+import com.ollie.iptv.player.engine.PlaybackEngine
+import com.ollie.iptv.ui.live.LiveChannelFilter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+enum class LiveSortMode { SOURCE, NAME_ASC, NAME_DESC, CATEGORY }
+
+enum class ChannelSecurityAction { LOCK, UNLOCK, PLAY }
+
+data class ChannelSecurityRequest(
+    val stream: StreamEntity,
+    val action: ChannelSecurityAction,
+    val needsPinSetup: Boolean
+)
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val dao = OllieDatabase.get(app).dao()
     private val repository = PlaylistRepository(dao)
+    private val pinVault = ParentalPinVault(app)
+    private val playbackEngine = PlaybackEngine(app)
+
+    private val liveSearchQuery = MutableStateFlow("")
+    private val liveCategoryFilter = MutableStateFlow("All channels")
+    private val liveSortMode = MutableStateFlow(LiveSortMode.SOURCE)
+    val liveSearch: StateFlow<String> = liveSearchQuery.asStateFlow()
+    val liveCategory: StateFlow<String> = liveCategoryFilter.asStateFlow()
+    val liveSort: StateFlow<LiveSortMode> = liveSortMode.asStateFlow()
+    val liveCategories = dao.streams("LIVE")
+        .map { items -> listOf("All channels") + items.asSequence().map { it.category }.distinct().sortedBy { it.lowercase() }.toList() }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), listOf("All channels"))
+    @OptIn(FlowPreview::class)
+    val filteredLive = combine(
+        dao.streams("LIVE"), liveSearchQuery.debounce(180), liveCategoryFilter, liveSortMode
+    ) { items, query, category, sort ->
+        LiveChannelFilter.apply(items, query, category, sort)
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val recentChannels = dao.recentLiveStreams(12)
+    val favoriteGroups = dao.favoriteGroups()
+    private val selectedFavoriteGroupId = MutableStateFlow<Long?>(null)
+    val selectedFavoriteGroup: StateFlow<Long?> = selectedFavoriteGroupId.asStateFlow()
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val selectedFavoriteGroupStreams = selectedFavoriteGroupId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else dao.favoriteGroupStreams(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val lockedChannelIds = dao.channelLocks()
+        .map { locks -> locks.mapTo(mutableSetOf()) { it.streamId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+    private val _securityRequest = MutableStateFlow<ChannelSecurityRequest?>(null)
+    val securityRequest: StateFlow<ChannelSecurityRequest?> = _securityRequest.asStateFlow()
+    private val _securityError = MutableStateFlow<String?>(null)
+    val securityError: StateFlow<String?> = _securityError.asStateFlow()
+    private val _player = MutableStateFlow<ExoPlayer?>(null)
+    val player: StateFlow<ExoPlayer?> = _player.asStateFlow()
     val playlists = dao.playlists()
     val scheduledRecordings = dao.scheduledRecordings()
     val allStreams = dao.allStreams()
@@ -34,6 +88,107 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val message: StateFlow<String?> = _message
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy
+
+    fun setLiveSearch(value: String) { liveSearchQuery.value = value }
+    fun setLiveCategory(value: String) { liveCategoryFilter.value = value }
+    fun setLiveSort(value: LiveSortMode) { liveSortMode.value = value }
+
+    fun selectFavoriteGroup(groupId: Long?) { selectedFavoriteGroupId.value = groupId }
+
+    fun createFavoriteGroup(name: String, streamId: String? = null, onCreated: (Long) -> Unit = {}) =
+        viewModelScope.launch {
+            val cleanName = name.trim()
+            if (cleanName.isBlank()) {
+                _message.value = "Enter a group name."
+                return@launch
+            }
+            val id = dao.insertFavoriteGroup(FavoriteGroupEntity(name = cleanName))
+            if (id < 0L) {
+                _message.value = "A favorite group with this name already exists."
+                return@launch
+            }
+            if (streamId != null) {
+                dao.insertFavoriteGroupChannel(FavoriteGroupChannelEntity(id, streamId))
+                dao.setFavorite(streamId, true)
+            }
+            selectedFavoriteGroupId.value = id
+            onCreated(id)
+        }
+
+    fun addStreamToFavoriteGroup(groupId: Long, streamId: String) = viewModelScope.launch {
+        dao.insertFavoriteGroupChannel(FavoriteGroupChannelEntity(groupId, streamId))
+        dao.setFavorite(streamId, true)
+        _message.value = "Channel added to favorite group."
+    }
+
+    fun deleteFavoriteGroup(groupId: Long) = viewModelScope.launch {
+        dao.deleteFavoriteGroup(groupId)
+        if (selectedFavoriteGroupId.value == groupId) selectedFavoriteGroupId.value = null
+    }
+
+    fun removeStreamFromFavoriteGroup(groupId: Long, streamId: String) = viewModelScope.launch {
+        dao.removeFavoriteGroupChannel(groupId, streamId)
+    }
+
+    fun requestPlay(item: StreamEntity) = viewModelScope.launch {
+        if (item.kind == "LIVE" && dao.isChannelLocked(item.id)) {
+            requestChannelSecurity(item, ChannelSecurityAction.PLAY)
+        } else {
+            play(item)
+        }
+    }
+
+    fun requestChannelLockToggle(item: StreamEntity) = viewModelScope.launch {
+        val action = if (dao.isChannelLocked(item.id)) ChannelSecurityAction.UNLOCK else ChannelSecurityAction.LOCK
+        requestChannelSecurity(item, action)
+    }
+
+    private fun requestChannelSecurity(item: StreamEntity, action: ChannelSecurityAction) {
+        _securityError.value = null
+        _securityRequest.value = ChannelSecurityRequest(item, action, !pinVault.hasPin())
+    }
+
+    fun cancelChannelSecurity() {
+        _securityRequest.value = null
+        _securityError.value = null
+    }
+
+    fun confirmChannelSecurity(pin: String, confirmation: String) = viewModelScope.launch(Dispatchers.Default) {
+        val request = _securityRequest.value ?: return@launch
+        val valid = if (request.needsPinSetup) {
+            if (pin != confirmation) {
+                withContext(Dispatchers.Main) { _securityError.value = "PIN entries do not match." }
+                return@launch
+            }
+            if (pin.length !in 4..8 || pin.any { !it.isDigit() }) {
+                withContext(Dispatchers.Main) { _securityError.value = "PIN must contain 4 to 8 digits." }
+                return@launch
+            }
+            runCatching { pinVault.setPin(pin) }.isSuccess
+        } else {
+            pinVault.verify(pin)
+        }
+        if (!valid) {
+            withContext(Dispatchers.Main) {
+                _securityError.value = if (request.needsPinSetup) "Could not save PIN." else "Incorrect PIN."
+            }
+            return@launch
+        }
+        withContext(Dispatchers.Main) {
+            when (request.action) {
+                ChannelSecurityAction.LOCK -> viewModelScope.launch {
+                    dao.lockChannel(ChannelLockEntity(request.stream.id))
+                    _message.value = "Channel locked."
+                }
+                ChannelSecurityAction.UNLOCK -> viewModelScope.launch {
+                    dao.unlockChannel(request.stream.id)
+                    _message.value = "Channel unlocked."
+                }
+                ChannelSecurityAction.PLAY -> play(request.stream)
+            }
+            cancelChannelSecurity()
+        }
+    }
 
     fun importM3uUrl(name: String, url: String) = runTask {
         val count = repository.importM3uUrl(name, url)
@@ -96,6 +251,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _guideProgrammes.value = dao.programmesForRange(start, start + 24L * 60L * 60L * 1000L)
     }
     fun toggleFavorite(item: StreamEntity) = viewModelScope.launch {
+        if (item.isFavorite) dao.removeStreamFromFavoriteGroups(item.id)
         dao.setFavorite(item.id, !item.isFavorite)
     }
     fun loadSeries(item: StreamEntity) = viewModelScope.launch {
@@ -116,14 +272,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         finally { _busy.value = false }
     }
     fun play(item: StreamEntity) {
+        _player.value = playbackEngine.play(item.url)
         _selected.value = item
+        if (item.kind == "LIVE") viewModelScope.launch(Dispatchers.IO) {
+            dao.recordChannelHistory(ChannelHistoryEntity(item.id, System.currentTimeMillis()))
+            dao.trimChannelHistory(20)
+        }
         viewModelScope.launch {
             _programmes.value = if (item.tvgId.isNotBlank()) {
                 dao.programmes(item.tvgId, System.currentTimeMillis()).first()
             } else emptyList()
         }
     }
-    fun stopPlayback() { _selected.value = null }
+    fun stopPlayback() {
+        _selected.value = null
+        playbackEngine.release()
+        _player.value = null
+    }
+
+    override fun onCleared() {
+        playbackEngine.release()
+        _player.value = null
+        super.onCleared()
+    }
     fun report(text: String) { _message.value = text }
     fun clearMessage() { _message.value = null }
 
