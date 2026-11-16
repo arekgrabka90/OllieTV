@@ -144,10 +144,11 @@ class PlaylistRepository(private val dao: OllieDao) {
             val streams = dao.allStreams().first()
             val exact = streams.filter { it.kind == "LIVE" && it.tvgId.isNotBlank() }
             exact.forEach { stream ->
-                if (document.channels.any { it.xmltvId.equals(stream.tvgId, true) }) {
+                val matchedChannel = document.channels.firstOrNull { it.xmltvId.equals(stream.tvgId, true) }
+                if (matchedChannel != null) {
                     val existingMapping = dao.channelMapping(stream.id)
                     if (existingMapping == null || existingMapping.matchType != "MANUAL") {
-                        dao.saveChannelMapping(ChannelMappingEntity(stream.id, stream.tvgId, "TVG_ID"))
+                        dao.saveChannelMapping(ChannelMappingEntity(stream.id, matchedChannel.xmltvId, "TVG_ID"))
                     }
                 }
             }

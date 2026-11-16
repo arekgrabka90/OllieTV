@@ -233,12 +233,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun importEpg(url: String) = runTask {
         val count = repository.importEpg(url)
+        refreshSelectedProgrammes()
+        loadGuideDay(_guideDayOffset.value)
         "Imported $count EPG programmes."
     }
     fun addEpgSource(name: String, url: String) = runTask {
         val normalizedUrl = url.trim()
         val id = repository.addEpgSource(name, normalizedUrl)
         val count = repository.importEpg(normalizedUrl)
+        refreshSelectedProgrammes()
+        loadGuideDay(_guideDayOffset.value)
         "Added EPG source #$id; imported $count programmes."
     }
     fun setEpgSourceEnabled(source: EpgSourceEntity, enabled: Boolean) = viewModelScope.launch {
@@ -247,10 +251,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteEpgSource(id: Long) = viewModelScope.launch { repository.deleteEpgSource(id) }
     fun refreshEpgSource(source: EpgSourceEntity) = runTask {
         val count = repository.importEpg(source.url)
+        refreshSelectedProgrammes()
+        loadGuideDay(_guideDayOffset.value)
         "Refreshed ${source.name}: $count programmes."
     }
     fun saveManualEpgMapping(streamId: String, xmltvId: String) = runTask {
         repository.saveManualEpgMapping(streamId, xmltvId)
+        if (_selected.value?.id == streamId) refreshSelectedProgrammes()
+        loadGuideDay(_guideDayOffset.value)
         "Manual EPG mapping saved."
     }
     fun scheduleProgrammeReminder(stream: StreamEntity, programme: ProgrammeEntity, minutes: Int) = viewModelScope.launch {
@@ -282,8 +290,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setPlaylistEnabled(item: PlaylistEntity, enabled: Boolean) = viewModelScope.launch {
         repository.updatePlaylist(item.copy(enabled = enabled))
     }
-    fun updatePlaylistSettings(item: PlaylistEntity, name: String, refreshHours: Int, epgUrl: String) = viewModelScope.launch {
-        repository.updatePlaylist(item.copy(name = name.trim().ifBlank { item.name }, refreshIntervalHours = refreshHours, epgUrl = epgUrl))
+    fun updatePlaylistSettings(item: PlaylistEntity, name: String, refreshHours: Int, epgUrl: String) = runTask {
+        val normalizedEpgUrl = epgUrl.trim()
+        repository.updatePlaylist(item.copy(name = name.trim().ifBlank { item.name }, refreshIntervalHours = refreshHours, epgUrl = normalizedEpgUrl))
+        if (normalizedEpgUrl.isNotBlank()) {
+            val count = repository.importEpg(normalizedEpgUrl)
+            refreshSelectedProgrammes()
+            loadGuideDay(_guideDayOffset.value)
+            "Playlist settings saved; imported $count EPG programmes."
+        } else "Playlist settings saved."
     }
     fun deletePlaylist(id: Long) = runTask {
         repository.deletePlaylist(id)
@@ -343,13 +358,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             dao.recordChannelHistory(ChannelHistoryEntity(item.id, System.currentTimeMillis()))
             dao.trimChannelHistory(20)
         }
-        viewModelScope.launch {
-            val mappedId = dao.channelMapping(item.id)?.xmltvChannelId ?: item.tvgId
-            _programmes.value = if (mappedId.isNotBlank()) {
-                dao.programmes(mappedId, System.currentTimeMillis()).first()
-                    .distinctBy { "${it.startUtc}|${it.endUtc}|${it.title}" }
-            } else emptyList()
+        viewModelScope.launch { refreshSelectedProgrammes() }
+    }
+
+    private suspend fun refreshSelectedProgrammes() {
+        val item = _selected.value
+        if (item == null || item.kind != "LIVE") {
+            _programmes.value = emptyList()
+            return
         }
+        val mappedId = dao.channelMapping(item.id)?.xmltvChannelId?.takeIf { it.isNotBlank() } ?: item.tvgId
+        _programmes.value = if (mappedId.isNotBlank()) {
+            dao.programmes(mappedId, System.currentTimeMillis()).first()
+                .distinctBy { "${it.startUtc}|${it.endUtc}|${it.title}" }
+        } else emptyList()
     }
     fun stopPlayback() {
         _selected.value = null

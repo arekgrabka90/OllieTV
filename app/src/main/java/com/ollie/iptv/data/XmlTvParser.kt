@@ -30,6 +30,7 @@ object XmlTvParser {
         var event = parser.eventType
         var channelId = ""; var channelName = ""; var channelIcon = ""
         var programmeChannel = ""; var title = ""; var desc = ""
+        val programmeChannelIds = linkedSetOf<String>()
         var start: Long? = null; var end: Long? = null
         while (event != XmlPullParser.END_DOCUMENT) {
             when (event) {
@@ -39,6 +40,7 @@ object XmlTvParser {
                     "icon" -> if (channelIcon.isBlank()) channelIcon = parser.getAttributeValue(null, "src").orEmpty().trim()
                     "programme" -> {
                         programmeChannel = parser.getAttributeValue(null, "channel").orEmpty().trim()
+                        if (programmeChannel.isNotBlank()) programmeChannelIds += programmeChannel
                         start = parseDate(parser.getAttributeValue(null, "start").orEmpty())
                         end = parseDate(parser.getAttributeValue(null, "stop").orEmpty())
                         title = ""; desc = ""
@@ -64,19 +66,25 @@ object XmlTvParser {
             }
             event = parser.next()
         }
+        val knownChannelIds = channels.mapTo(mutableSetOf()) { it.xmltvId }
+        programmeChannelIds.filterNot { it in knownChannelIds }.forEach { xmltvId ->
+            channels += EpgChannelEntity(id = "$sourceId|$xmltvId", sourceId = sourceId, xmltvId = xmltvId, displayName = xmltvId)
+        }
         return XmlTvDocument(channels.distinctBy { it.id }, programmes.distinctBy { it.id })
     }
 
     private fun parseDate(value: String): Long? {
         val input = value.trim()
-        val hasOffset = Regex("""^\d{14} [+-]\d{4}$""").matches(input)
-        val utc = Regex("""^\d{14}$""").matches(input)
-        if (!hasOffset && !utc) return null
+        val match = Regex("""^(\d{14})\s*([+-]\d{4})?$""").matchEntire(input) ?: return null
+        val offset = match.groupValues[2]
+        val normalized = if (offset.isNotBlank()) "${match.groupValues[1]} $offset" else match.groupValues[1]
+        val hasOffset = offset.isNotBlank()
         val fmt = SimpleDateFormat(if (hasOffset) "yyyyMMddHHmmss Z" else "yyyyMMddHHmmss", Locale.US).apply {
-            isLenient = false; timeZone = TimeZone.getTimeZone("UTC")
+            isLenient = false
+            timeZone = TimeZone.getTimeZone("UTC")
         }
         val pos = ParsePosition(0)
-        val date = fmt.parse(input, pos) ?: return null
-        return date.time.takeIf { pos.index == input.length && pos.errorIndex < 0 }
+        val date = fmt.parse(normalized, pos) ?: return null
+        return date.time.takeIf { pos.index == normalized.length && pos.errorIndex < 0 }
     }
 }

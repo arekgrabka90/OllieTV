@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ollie.iptv.data.ProgrammeEntity
+import com.ollie.iptv.data.ChannelMappingEntity
 import com.ollie.iptv.data.StreamEntity
 import com.ollie.iptv.ui.LiveSortMode
 import com.ollie.iptv.ui.theme.Muted
@@ -35,6 +36,7 @@ fun LiveTvScreen(
     search: String,
     sortMode: LiveSortMode,
     programmes: List<ProgrammeEntity>,
+    channelMappings: List<ChannelMappingEntity> = emptyList(),
     lockedChannelIds: Set<String>,
     expandedLayout: Boolean,
     onSearchChange: (String) -> Unit,
@@ -122,6 +124,7 @@ fun LiveTvScreen(
                 ChannelPreview(
                     channel = preview,
                     programmes = programmes,
+                    channelMappings = channelMappings,
                     locked = preview?.id?.let { it in lockedChannelIds } == true,
                     onPlay = { preview?.let(onPlay) },
                     modifier = Modifier.weight(0.54f).fillMaxHeight()
@@ -226,14 +229,17 @@ private fun ChannelList(
 private fun ChannelPreview(
     channel: StreamEntity?,
     programmes: List<ProgrammeEntity>,
+    channelMappings: List<ChannelMappingEntity>,
     locked: Boolean,
     onPlay: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (channel == null) return
     val now = System.currentTimeMillis()
-    val channelProgrammes = remember(programmes, channel.tvgId) {
-        programmes.filter { it.channelId == channel.tvgId }.sortedBy { it.startUtc }
+    val mappedEpgId = channelMappings.firstOrNull { it.streamId == channel.id }?.xmltvChannelId
+        ?.takeIf { it.isNotBlank() } ?: channel.tvgId
+    val channelProgrammes = remember(programmes, mappedEpgId) {
+        programmes.filter { it.channelId.equals(mappedEpgId, ignoreCase = true) }.sortedBy { it.startUtc }
     }
     val current = channelProgrammes.firstOrNull { now >= it.startUtc && now < it.endUtc }
     val next = channelProgrammes.firstOrNull { it.startUtc >= (current?.endUtc ?: now) }

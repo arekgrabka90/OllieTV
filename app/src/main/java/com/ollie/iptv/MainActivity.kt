@@ -332,6 +332,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                 search = liveSearch,
                                 sortMode = liveSort,
                                 programmes = previewProgrammes,
+                                channelMappings = channelMappings,
                                 lockedChannelIds = lockedChannelIds,
                                 expandedLayout = ollieUsesTwoPaneLiveLayout(availableWidth.value.toInt()),
                                 onSearchChange = { search = it; vm.setLiveSearch(it) },

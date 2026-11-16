@@ -29,6 +29,19 @@ class XmlTvParserTest {
         assertEquals(Instant.parse("2024-11-01T12:00:00Z").toEpochMilli(), result.single().endUtc)
     }
 
+    @Test fun parsesCompactOffsetWithoutWhitespace() {
+        val xml = "<tv><programme start=\"20240101120000+0100\" stop=\"20240101130000+0100\" channel=\"c1\"><title>Programme</title></programme></tv>"
+        val result = XmlTvParser.parse(ByteArrayInputStream(xml.toByteArray()))
+        assertEquals(Instant.parse("2024-01-01T11:00:00Z").toEpochMilli(), result.single().startUtc)
+    }
+
+    @Test fun createsChannelMetadataWhenFeedOmitsChannelElements() {
+        val xml = "<tv><programme start=\"20240101120000 +0000\" stop=\"20240101130000 +0000\" channel=\"channel.one\"><title>Programme</title></programme></tv>"
+        val result = XmlTvParser.parseDocument(ByteArrayInputStream(xml.toByteArray()), 7L)
+        assertEquals("channel.one", result.channels.single().xmltvId)
+        assertEquals("channel.one", result.channels.single().displayName)
+    }
+
     @Test fun parsesOffsetlessXmlTvDatesAsUtc() {
         val xml = """<tv><programme start="20240101120000" stop="20240101123000" channel="c1"><title>Programme</title></programme></tv>"""
         val result = XmlTvParser.parse(ByteArrayInputStream(xml.toByteArray()))
