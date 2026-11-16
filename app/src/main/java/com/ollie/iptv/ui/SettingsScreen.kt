@@ -9,10 +9,24 @@ import androidx.compose.ui.unit.dp
 import com.ollie.iptv.data.OllieSettings
 import com.ollie.iptv.ui.theme.Muted
 import com.ollie.iptv.ui.theme.Panel
+
 @Composable
-fun SettingsScreen(settings:OllieSettings,onShowLogos:(Boolean)->Unit,onShowCategory:(Boolean)->Unit,onShowRecent:(Boolean)->Unit,onCompactRows:(Boolean)->Unit,onHudTimeout:(Int)->Unit) {
+fun SettingsScreen(settings:OllieSettings,onShowLogos:(Boolean)->Unit,onShowCategory:(Boolean)->Unit,onShowRecent:(Boolean)->Unit,onCompactRows:(Boolean)->Unit,onHudTimeout:(Int)->Unit,onAddPlaylist:()->Unit,playlistContent:@Composable ()->Unit,epgContent:@Composable ()->Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         Text("Personalise your Ollie TV experience",color=Muted)
+        Section("Sources & playlists","Manage IPTV connections in one place") {
+            Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                Text("Add M3U playlists, local files or Xtream Codes accounts. Edit, refresh, reorder and disable existing sources below.",color=Muted,style=MaterialTheme.typography.bodySmall)
+                Button(onClick=onAddPlaylist,modifier=Modifier.fillMaxWidth()){Text("Add playlist or Xtream account")}
+                playlistContent()
+            }
+        }
+        Section("EPG & programme guide","XMLTV sources and automatic channel matching") {
+            Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                Text("Automatic channel matching is applied only above 90% confidence and when the best result is unambiguous. Manual mappings and exact tvg-id matches take priority.",color=Muted,style=MaterialTheme.typography.bodySmall)
+                epgContent()
+            }
+        }
         Section("Live TV & channel list","Presentation preferences") {
             Toggle("Show channel logos","Display artwork supplied by M3U or Xtream sources.",settings.showChannelLogos,onShowLogos)
             Toggle("Show channel categories","Show the category under each channel.",settings.showChannelCategory,onShowCategory)
@@ -21,15 +35,13 @@ fun SettingsScreen(settings:OllieSettings,onShowLogos:(Boolean)->Unit,onShowCate
         }
         Section("Player","Playback overlay") {
             Column(Modifier.fillMaxWidth().padding(14.dp)) {
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-                    Text("HUD auto-hide delay");Text("${settings.hudTimeoutSeconds} seconds",color=MaterialTheme.colorScheme.secondary)
-                }
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("HUD auto-hide delay");Text("${settings.hudTimeoutSeconds} seconds",color=MaterialTheme.colorScheme.secondary)}
                 Slider(value=settings.hudTimeoutSeconds.toFloat(),onValueChange={onHudTimeout(it.toInt())},valueRange=3f..15f,steps=11)
                 Text("The player overlay hides after this period without interaction.",color=Muted,style=MaterialTheme.typography.bodySmall)
             }
         }
         Section("About settings","Saved on this device") {
-            Text("Preferences are saved immediately with Android DataStore and remain after restarting the app. Playlist, EPG, favourites, parental locks and recordings retain their existing database storage.",Modifier.padding(14.dp),color=Muted,style=MaterialTheme.typography.bodySmall)
+            Text("Preferences are saved immediately with Android DataStore. Playlist, EPG, favourites, parental locks and recordings retain their existing database storage.",Modifier.padding(14.dp),color=Muted,style=MaterialTheme.typography.bodySmall)
         }
     }
 }

@@ -26,13 +26,13 @@ fun OllieNavigationItem(
 ) {
     var focused by remember { mutableStateOf(false) }
     val icon = when (tab) {
+        ScreenTab.HUB -> Icons.Default.Home
         ScreenTab.LIVE -> Icons.Default.Tv
         ScreenTab.GUIDE -> Icons.Default.CalendarMonth
         ScreenTab.MOVIES -> Icons.Default.Movie
         ScreenTab.SERIES -> Icons.Default.VideoLibrary
         ScreenTab.FAVORITES -> Icons.Default.Star
         ScreenTab.RECORDINGS -> Icons.Default.FiberManualRecord
-        ScreenTab.PLAYLISTS -> Icons.Default.PlaylistPlay
         ScreenTab.SETTINGS -> Icons.Default.Settings
     }
     Surface(

@@ -16,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,6 +58,8 @@ import com.ollie.iptv.ui.live.FavoriteGroupPickerDialog
 import com.ollie.iptv.navigation.ScreenTab
 import com.ollie.iptv.navigation.OllieNavigationItem
 import com.ollie.iptv.player.ui.OlliePlayer
+import com.ollie.iptv.player.ui.OllieMiniPlayer
+import com.ollie.iptv.ui.home.TVHubScreen
 import com.ollie.iptv.ui.adaptive.OllieWindowClass
 import com.ollie.iptv.ui.adaptive.ollieWindowClassForWidth
 import com.ollie.iptv.ui.adaptive.ollieUsesTwoPaneLiveLayout
@@ -118,7 +121,8 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
     val selected by vm.selected.collectAsState()
     val message by vm.message.collectAsState()
     val busy by vm.busy.collectAsState()
-    var tab by rememberSaveable { mutableStateOf(ScreenTab.LIVE) }
+    var tab by rememberSaveable { mutableStateOf(ScreenTab.HUB) }
+    var playerFullscreen by rememberSaveable { mutableStateOf(false) }
     var dialog by rememberSaveable { mutableStateOf("") }
     var search by rememberSaveable { mutableStateOf("") }
     var groupTargetStreamId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -155,14 +159,19 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
         } else vm.scheduleProgrammeReminder(channel, programme, minutes)
     }
     val player by vm.player.collectAsState()
+    val handleChannelClick: (StreamEntity) -> Unit = { channel ->
+        if (selected?.id == channel.id && player != null) playerFullscreen = true
+        else { playerFullscreen = false; vm.requestPlay(channel) }
+    }
 
     BackHandler(
-        enabled = selected != null || dialog.isNotBlank() || catchupTargetId != null ||
+        enabled = playerFullscreen || (selected != null && selected?.kind != "LIVE") || dialog.isNotBlank() || catchupTargetId != null ||
             scheduleDialog || selectedSeriesId != null || detailTargetId != null || groupPickerVisible || createGroupVisible ||
             deleteGroupTarget != null || securityRequest != null
     ) {
         when {
             securityRequest != null -> vm.cancelChannelSecurity()
+            playerFullscreen && selected?.kind == "LIVE" -> playerFullscreen = false
             deleteGroupTarget != null -> deleteGroupTarget = null
             groupPickerVisible -> groupPickerVisible = false
             createGroupVisible -> createGroupVisible = false
@@ -191,7 +200,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
         secondary = Color(0xFFB6C0CA)
     )) {
         Surface(Modifier.fillMaxSize(), color = Ink) {
-            if (selected != null && player != null) {
+            if (selected != null && player != null && (playerFullscreen || selected!!.kind != "LIVE")) {
                 OlliePlayer(
                     player = player!!,
                     stream = selected!!,
@@ -201,7 +210,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                     guideDayOffset = guideDayOffset,
                     onGuideDayChange = vm::loadGuideDay,
                     channelMappings = channelMappings,
-                    onBack = vm::stopPlayback,
+                    onBack = { if (selected?.kind == "LIVE") playerFullscreen = false else vm.stopPlayback() },
                     channels = live,
                     onZap = vm::requestPlay,
                     onCatchup = { catchupTargetId = selected?.id },
@@ -292,25 +301,16 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                             Column(Modifier.weight(1f)) {
                                 Text(tab.label, fontSize = if (compact) 22.sp else 27.sp, fontWeight = FontWeight.Bold)
                                 Text(when(tab) {
+                                    ScreenTab.HUB -> "Your live television hub"
                                     ScreenTab.LIVE -> "${live.size} channels"
                                     ScreenTab.MOVIES -> "${movies.size} movies"
                                     ScreenTab.SERIES -> if (selectedSeries == null) "${series.size} series" else "Episodes • ${selectedSeries?.name}"
                                     ScreenTab.FAVORITES -> "${favorites.size} favorites"
                                     ScreenTab.GUIDE -> "Programme schedule"
                                     ScreenTab.RECORDINGS -> "${recordings.size} recordings"
-                                    ScreenTab.PLAYLISTS -> "${playlists.size} sources"
                                     ScreenTab.SETTINGS -> "App preferences"
                                 }, color = Muted, fontSize = 13.sp)
                             }
-                            if (compact) {
-                                IconButton(onClick = { dialog = "add" }) { Icon(Icons.Default.Add, "Add source") }
-                            } else {
-                                OutlinedButton(onClick = { dialog = "add" }) {
-                                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add source")
-                                }
-                            }
-                            Spacer(Modifier.width(4.dp))
-                            IconButton(onClick = { dialog = "epg" }) { Icon(Icons.Default.CalendarMonth, "Import EPG") }
                         }
                         Spacer(Modifier.height(14.dp))
                         if (tab == ScreenTab.GUIDE || tab == ScreenTab.MOVIES || tab == ScreenTab.SERIES || tab == ScreenTab.FAVORITES) {
@@ -323,7 +323,14 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                             )
                         }
                         Spacer(Modifier.height(12.dp))
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
                         when (tab) {
+                            ScreenTab.HUB -> TVHubScreen(
+                                channels = filteredLive, recentChannels = recentChannels, favorites = favorites,
+                                categories = liveCategories, selectedCategory = liveCategory, selectedChannel = selected,
+                                programmes = previewProgrammes, channelMappings = channelMappings,
+                                onCategoryChange = vm::setLiveCategory, onChannelClick = handleChannelClick
+                            )
                             ScreenTab.LIVE -> LiveTvScreen(
                                 channels = filteredLive,
                                 recentChannels = recentChannels,
@@ -338,7 +345,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                 onSearchChange = { search = it; vm.setLiveSearch(it) },
                                 onCategoryChange = vm::setLiveCategory,
                                 onSortChange = vm::setLiveSort,
-                                onPlay = vm::requestPlay,
+                                onPlay = handleChannelClick,
                                 onFavorite = vm::toggleFavorite,
                                 onLockToggle = vm::requestChannelLockToggle,
                                 onAddToGroup = { stream ->
@@ -392,7 +399,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                 val visibleFavorites = if (selectedFavoriteGroup == null) favorites else selectedFavoriteGroupStreams
                                 StreamList(
                                     visibleFavorites.filter { it.name.contains(search, true) },
-                                    onPlay = vm::requestPlay,
+                                    onPlay = handleChannelClick,
                                     onFavorite = vm::toggleFavorite,
                                     onRemoveFromGroup = selectedFavoriteGroup?.let { groupId ->
                                         { stream -> vm.removeStreamFromFavoriteGroup(groupId, stream.id) }
@@ -402,41 +409,36 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                             ScreenTab.GUIDE -> GuideList(
                                 channels = live, programmes = guideProgrammes, query = search,
                                 dayOffset = guideDayOffset, onDayChange = vm::loadGuideDay,
-                                onPlay = vm::requestPlay, onReminder = scheduleProgrammeReminder,
+                                onPlay = handleChannelClick, onReminder = scheduleProgrammeReminder,
                                 epgChannels = epgChannels, onMap = vm::saveManualEpgMapping,
                                 mappings = channelMappings, reminders = scheduledProgrammeReminders,
                                 onCancelReminder = vm::cancelProgrammeReminder
                             )
-                            ScreenTab.PLAYLISTS -> Column(Modifier.fillMaxSize()) {
-                                EpgSourcesPanel(
-                                    sources = epgSources,
-                                    onAdd = vm::addEpgSource,
-                                    onRefresh = vm::refreshEpgSource,
-                                    onEnabled = vm::setEpgSourceEnabled,
-                                    onDelete = vm::deleteEpgSource
-                                )
-                                PlaylistManagerList(
-                                modifier = Modifier.weight(1f),
-                                playlists = playlists,
-                                onEnabled = vm::setPlaylistEnabled,
-                                onSettings = vm::updatePlaylistSettings,
-                                onRefresh = vm::refreshPlaylist,
-                                onDelete = vm::deletePlaylist,
-                                onMove = { direction ->
-                                    val ordered = playlists.toMutableList()
-                                    val index = ordered.indexOfFirst { it.id == direction.first }
-                                    val target = index + direction.second
-                                    if (index >= 0 && target in ordered.indices) {
-                                        val item = ordered.removeAt(index)
-                                        ordered.add(target, item)
-                                        vm.reorderPlaylists(ordered)
-                                    }
+                            ScreenTab.SETTINGS -> SettingsScreen(
+                                settings = settings, onShowLogos = vm::setShowChannelLogos,
+                                onShowCategory = vm::setShowChannelCategory, onShowRecent = vm::setShowRecentChannels,
+                                onCompactRows = vm::setCompactRows, onHudTimeout = vm::setHudTimeoutSeconds,
+                                onAddPlaylist = { dialog = "add" },
+                                playlistContent = {
+                                    PlaylistManagerList(
+                                        modifier = Modifier, playlists = playlists,
+                                        onEnabled = vm::setPlaylistEnabled, onSettings = vm::updatePlaylistSettings,
+                                        onRefresh = vm::refreshPlaylist, onDelete = vm::deletePlaylist,
+                                        onMove = { direction ->
+                                            val ordered = playlists.toMutableList()
+                                            val index = ordered.indexOfFirst { it.id == direction.first }
+                                            val target = index + direction.second
+                                            if (index >= 0 && target in ordered.indices) {
+                                                val item = ordered.removeAt(index); ordered.add(target, item); vm.reorderPlaylists(ordered)
+                                            }
+                                        }
+                                    )
+                                },
+                                epgContent = {
+                                    EpgSourcesPanel(sources = epgSources, onAdd = vm::addEpgSource,
+                                        onRefresh = vm::refreshEpgSource, onEnabled = vm::setEpgSourceEnabled, onDelete = vm::deleteEpgSource)
                                 }
                             )
-                            }
-                            ScreenTab.SETTINGS -> SettingsScreen(settings=settings,onShowLogos=vm::setShowChannelLogos,
-                                onShowCategory=vm::setShowChannelCategory,onShowRecent=vm::setShowRecentChannels,
-                                onCompactRows=vm::setCompactRows,onHudTimeout=vm::setHudTimeoutSeconds)
                             ScreenTab.RECORDINGS -> {
                                 if (recordings.isEmpty()) EmptyState("No recordings yet", "Start a recording from the player.")
                                 else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -472,6 +474,11 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                     }
                                 }
                             }
+                        }
+                        }
+                        if (selected?.kind == "LIVE" && player != null) {
+                            OllieMiniPlayer(player!!, selected!!, onExpand = { playerFullscreen = true },
+                                onClose = { playerFullscreen = false; vm.stopPlayback() })
                         }
                         message?.let {
                             Spacer(Modifier.height(8.dp))
@@ -930,8 +937,8 @@ private fun PlaylistManagerList(
     if (playlists.isEmpty()) {
         Box(modifier) { EmptyState("No playlists", "Add an M3U or Xtream Codes source.") }
     } else {
-        LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            items(playlists, key = { it.id }) { playlist ->
+        Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            playlists.forEach { playlist ->
                 var playlistName by remember(playlist.id, playlist.name) { mutableStateOf(playlist.name) }
                 var epgUrl by remember(playlist.id, playlist.epgUrl) { mutableStateOf(playlist.epgUrl) }
                 var refreshHours by remember(playlist.id, playlist.refreshIntervalHours) { mutableIntStateOf(playlist.refreshIntervalHours) }

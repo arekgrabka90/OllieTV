@@ -142,13 +142,24 @@ class PlaylistRepository(private val dao: OllieDao) {
             require(document.programmes.isNotEmpty()) { "EPG feed contains no valid programmes; previous data was preserved." }
             dao.replaceEpgSourceData(sourceId, document.channels, document.programmes)
             val streams = dao.allStreams().first()
-            val exact = streams.filter { it.kind == "LIVE" && it.tvgId.isNotBlank() }
-            exact.forEach { stream ->
+            val liveStreams = streams.filter { it.kind == "LIVE" }
+            liveStreams.filter { it.tvgId.isNotBlank() }.forEach { stream ->
                 val matchedChannel = document.channels.firstOrNull { it.xmltvId.equals(stream.tvgId, true) }
                 if (matchedChannel != null) {
                     val existingMapping = dao.channelMapping(stream.id)
                     if (existingMapping == null || existingMapping.matchType != "MANUAL") {
                         dao.saveChannelMapping(ChannelMappingEntity(stream.id, matchedChannel.xmltvId, "TVG_ID"))
+                    }
+                }
+            }
+            // Automatic mapping requires a unique confidence score above 90%.
+            // Manual and exact TVG_ID mappings always take priority.
+            val automaticMatches = EpgMatching.autoMatchAll(liveStreams, document.channels)
+            liveStreams.forEach { stream ->
+                val existingMapping = dao.channelMapping(stream.id)
+                if (existingMapping == null || existingMapping.matchType.startsWith("AUTO_")) {
+                    automaticMatches[stream.id]?.let { match ->
+                        dao.saveChannelMapping(ChannelMappingEntity(stream.id, match.xmltvId, "AUTO_${match.score}"))
                     }
                 }
             }

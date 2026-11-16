@@ -113,7 +113,7 @@ fun LiveTvScreen(
                     channels = channels,
                     lockedChannelIds = lockedChannelIds,
                     selectedId = preview?.id,
-                    onSelect = { previewId = it.id },
+                    onSelect = { previewId = it.id; onPlay(it) },
                     onPlay = onPlay,
                     onFavorite = onFavorite,
                     onLockToggle = onLockToggle,
