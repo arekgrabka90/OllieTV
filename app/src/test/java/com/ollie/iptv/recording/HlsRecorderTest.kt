@@ -58,7 +58,6 @@ segment.ts
 
         assertArrayEquals(segment, output.readBytes())
         assertTrue(server.takeRequest().path!!.endsWith("/master.m3u8"))
-        assertTrue(server.takeRequest().path!!.endsWith("/master.m3u8"))
         assertTrue(server.takeRequest().path!!.endsWith("/variant/index.m3u8"))
         assertTrue(server.takeRequest().path!!.endsWith("/variant/segment.ts"))
     }

@@ -11,7 +11,12 @@ import java.net.URL
  */
 object HlsRecorder {
     data class Segment(val uri: URL, val durationSeconds: Double)
-    data class Playlist(val segments: List<Segment>, val isEndList: Boolean, val targetDuration: Int)
+    data class Playlist(
+        val segments: List<Segment>,
+        val isEndList: Boolean,
+        val targetDuration: Int,
+        val firstVariant: URL? = null
+    )
 
     fun record(
         source: String,
@@ -26,12 +31,9 @@ object HlsRecorder {
         FileOutputStream(output, false).use { sink ->
             while (shouldContinue() && (maxDurationMillis <= 0 || System.currentTimeMillis() - started < maxDurationMillis)) {
                 var playlist = loadPlaylist(playlistUrl)
-                if (playlist.segments.isEmpty() && playlistUrl == URL(source)) {
-                    val variant = findFirstVariant(playlistUrl)
-                    if (variant != null) {
-                        playlistUrl = variant
-                        playlist = loadPlaylist(playlistUrl)
-                    }
+                if (playlist.segments.isEmpty() && playlist.firstVariant != null) {
+                    playlistUrl = playlist.firstVariant
+                    playlist = loadPlaylist(playlistUrl)
                 }
                 if (playlist.segments.isEmpty()) error("HLS playlist has no media segments.")
                 var downloaded = 0
@@ -86,6 +88,7 @@ object HlsRecorder {
         var duration = 0.0
         var target = 6
         var awaitingVariantUri = false
+        var firstVariant: URL? = null
         text.lineSequence().forEach { raw ->
             val line = raw.trim()
             when {
@@ -94,29 +97,16 @@ object HlsRecorder {
                     target = line.substringAfter(':').toIntOrNull() ?: target
                 line.startsWith("#EXTINF:") ->
                     duration = line.substringAfter(':').substringBefore(',').toDoubleOrNull() ?: 0.0
-                line.isNotBlank() && !line.startsWith("#") && awaitingVariantUri ->
+                line.isNotBlank() && !line.startsWith("#") && awaitingVariantUri -> {
+                    if (firstVariant == null) firstVariant = URL(url, line)
                     awaitingVariantUri = false
+                }
                 line.isNotBlank() && !line.startsWith("#") -> {
                     segments += Segment(URL(url, line), duration)
                     duration = 0.0
                 }
             }
         }
-        return Playlist(segments, text.contains("#EXT-X-ENDLIST"), target)
-    }
-
-    private fun findFirstVariant(url: URL): URL? {
-        val connection = url.openConnection() as HttpURLConnection
-        connection.connectTimeout = 20000
-        connection.readTimeout = 30000
-        connection.setRequestProperty("User-Agent", "OllieTV/0.4")
-        val text = try {
-            connection.connect()
-            if (connection.responseCode !in 200..299) return null
-            connection.inputStream.bufferedReader().use { it.readText() }
-        } finally { connection.disconnect() }
-        val lines = text.lineSequence().map { it.trim() }.toList()
-        val index = lines.indexOfFirst { it.startsWith("#EXT-X-STREAM-INF") }
-        return lines.getOrNull(index + 1)?.takeIf { it.isNotBlank() && !it.startsWith("#") }?.let { URL(url, it) }
+        return Playlist(segments, text.contains("#EXT-X-ENDLIST"), target, firstVariant)
     }
 }
