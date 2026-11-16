@@ -219,7 +219,8 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                 }
             } else {
                 BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val windowClass = ollieWindowClassForWidth(maxWidth.value.toInt())
+                    val availableWidth = maxWidth
+                    val windowClass = ollieWindowClassForWidth(availableWidth.value.toInt())
                     val compact = windowClass == OllieWindowClass.COMPACT
                     val medium = windowClass == OllieWindowClass.MEDIUM
                     Row(Modifier.fillMaxSize().padding(if (compact) 14.dp else 26.dp)) {
@@ -287,7 +288,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                 sortMode = liveSort,
                                 programmes = previewProgrammes,
                                 lockedChannelIds = lockedChannelIds,
-                                expandedLayout = ollieUsesTwoPaneLiveLayout(maxWidth.value.toInt()),
+                                expandedLayout = ollieUsesTwoPaneLiveLayout(availableWidth.value.toInt()),
                                 onSearchChange = { search = it; vm.setLiveSearch(it) },
                                 onCategoryChange = vm::setLiveCategory,
                                 onSortChange = vm::setLiveSort,
