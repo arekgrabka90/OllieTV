@@ -8,7 +8,7 @@ import java.util.TimeZone
 data class EpgMatchSuggestion(val xmltvId: String, val score: Int, val exactId: Boolean)
 
 object EpgMatching {
-    fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD)
+    fun normalize(value: String): String = Normalizer.normalize(value.replace("ł", "l").replace("Ł", "L"), Normalizer.Form.NFD)
         .replace(Regex("\\p{Mn}+"), "").lowercase(Locale.ROOT)
         .replace(Regex("\\b(hd|fhd|uhd|4k|tv|pl)\\b"), " ")
         .replace(Regex("[^a-z0-9]+"), " ").trim().replace(Regex("\\s+"), " ")
