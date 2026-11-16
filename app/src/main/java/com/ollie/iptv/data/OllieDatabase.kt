@@ -18,14 +18,32 @@ interface OllieDao {
     suspend fun deletePlaylistStreams(id: Long)
     @Query("DELETE FROM playlists WHERE id = :id")
     suspend fun deletePlaylist(id: Long)
+    @Transaction
+    suspend fun deletePlaylistAndStreams(id: Long) {
+        deletePlaylistStreams(id)
+        deletePlaylist(id)
+    }
     @Query("SELECT * FROM playlists WHERE enabled = 1 ORDER BY sortOrder, createdAt")
     fun enabledPlaylists(): Flow<List<PlaylistEntity>>
     @Insert
     suspend fun insertPlaylist(item: PlaylistEntity): Long
+    @Transaction
+    suspend fun insertPlaylistWithStreams(playlist: PlaylistEntity, streams: List<StreamEntity>): Long {
+        val playlistId = insertPlaylist(playlist)
+        insertStreams(streams.map { stream ->
+            stream.copy(id = M3uParser.id("$playlistId|${stream.id}"), playlistId = playlistId)
+        })
+        return playlistId
+    }
     @Query("SELECT * FROM playlists WHERE id = :id LIMIT 1")
     suspend fun playlist(id: Long): PlaylistEntity?
     @Query("DELETE FROM streams WHERE playlistId = :playlistId")
     suspend fun clearStreams(playlistId: Long)
+    @Transaction
+    suspend fun replacePlaylistStreams(playlistId: Long, items: List<StreamEntity>) {
+        clearStreams(playlistId)
+        insertStreams(items)
+    }
     @Query("SELECT * FROM streams WHERE playlistId = :playlistId")
     suspend fun streamsForPlaylist(playlistId: Long): List<StreamEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -72,7 +90,7 @@ interface OllieDao {
 abstract class OllieDatabase : RoomDatabase() {
     abstract fun dao(): OllieDao
     companion object {
-        private val MIGRATION_1_2 = object : Migration(1, 2) {
+        internal val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE playlists ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE playlists ADD COLUMN sortOrder INTEGER NOT NULL DEFAULT 0")

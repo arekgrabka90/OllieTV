@@ -28,7 +28,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.focus.FocusRequester
@@ -819,7 +819,7 @@ private fun OlliePlayer(
         .focusRequester(focusRequester)
         .onPreviewKeyEvent { event ->
             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-            val code = event.nativeKeyEvent.keyCode
+            val code = event.key.nativeKeyCode
             when (code) {
                 android.view.KeyEvent.KEYCODE_BACK,
                 android.view.KeyEvent.KEYCODE_ESCAPE -> {
@@ -907,7 +907,7 @@ private fun OlliePlayer(
                                     .mapNotNull { group.getTrackFormat(it).language }
                             }.distinct()
                         if (languages.isNotEmpty()) {
-                            val next = languages[(languages.indexOf(player.trackSelectionParameters.preferredAudioLanguage).let { if (it < 0) 0 else (it + 1) % languages.size })]
+                            val next = languages[(languages.indexOf(player.trackSelectionParameters.preferredAudioLanguages.firstOrNull()).let { if (it < 0) 0 else (it + 1) % languages.size })]
                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                                 .setPreferredAudioLanguage(next).build()
                             audioLanguage = "Audio: $next"

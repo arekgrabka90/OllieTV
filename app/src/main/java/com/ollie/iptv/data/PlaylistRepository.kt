@@ -23,15 +23,17 @@ class PlaylistRepository(private val dao: OllieDao) {
     suspend fun importM3uText(name: String, source: String, text: String): Int {
         val parsed = M3uParser.parse(text)
         require(parsed.isNotEmpty()) { "No channels found in M3U." }
-        val id = dao.insertPlaylist(PlaylistEntity(name = name, type = "M3U", sourceUrl = source))
-        dao.insertStreams(parsed.map {
+        val streams = parsed.map {
             StreamEntity(
-                id = M3uParser.id("$id|${it.tvgId}|${it.name}|${it.url}"),
-                playlistId = id, name = it.name, url = it.url,
+                id = M3uParser.id("${it.tvgId}|${it.name}|${it.url}"),
+                playlistId = 0L, name = it.name, url = it.url,
                 category = it.group.ifBlank { "Other" }, logo = it.logo,
                 tvgId = it.tvgId, kind = "LIVE", catchup = it.catchup, catchupDays = it.catchupDays
             )
-        })
+        }
+        dao.insertPlaylistWithStreams(
+            PlaylistEntity(name = name, type = "M3U", sourceUrl = source), streams
+        )
         return parsed.size
     }
 
@@ -42,13 +44,11 @@ class PlaylistRepository(private val dao: OllieDao) {
             require(live.isNotEmpty()) { "Login succeeded but no live channels were returned." }
             val movies = runCatching { client.fetchVod() }.getOrDefault(emptyList())
             val series = runCatching { client.fetchSeries() }.getOrDefault(emptyList())
-            val playlistId = dao.insertPlaylist(
+            dao.insertPlaylistWithStreams(
                 PlaylistEntity(name = name, type = "XTREAM", serverUrl = server.trimEnd('/'),
-                    username = CredentialVault.encrypt(username), password = CredentialVault.encrypt(password))
+                    username = CredentialVault.encrypt(username), password = CredentialVault.encrypt(password)),
+                live + movies + series
             )
-            dao.insertStreams((live + movies + series).map {
-                it.copy(id = M3uParser.id("$playlistId|${it.id}"), playlistId = playlistId)
-            })
             live.size + movies.size + series.size
         }
 
@@ -66,7 +66,7 @@ class PlaylistRepository(private val dao: OllieDao) {
                 }
                 M3uParser.parse(text).map {
                     StreamEntity(
-                        id = M3uParser.id("$id|${it.tvgId}|${it.name}|${it.url}"),
+                        id = M3uParser.id("$id|${M3uParser.id("${it.tvgId}|${it.name}|${it.url}")}"),
                         playlistId = id, name = it.name, url = it.url,
                         category = it.group.ifBlank { "Other" }, logo = it.logo, tvgId = it.tvgId,
                         kind = "LIVE", catchup = it.catchup, catchupDays = it.catchupDays
@@ -90,15 +90,13 @@ class PlaylistRepository(private val dao: OllieDao) {
             val wasFavorite = previousFavorites["${stream.kind}|${stream.tvgId}|${stream.name}"]?.isFavorite == true
             stream.copy(isFavorite = wasFavorite)
         }
-        dao.clearStreams(id)
-        dao.insertStreams(merged)
+        dao.replacePlaylistStreams(id, merged)
         dao.updatePlaylist(playlist.copy(lastRefreshAt = System.currentTimeMillis()))
         merged.size
     }
 
     suspend fun deletePlaylist(id: Long) {
-        dao.deletePlaylistStreams(id)
-        dao.deletePlaylist(id)
+        dao.deletePlaylistAndStreams(id)
     }
 
     suspend fun updatePlaylist(item: PlaylistEntity) = dao.updatePlaylist(item)

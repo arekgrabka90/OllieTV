@@ -85,13 +85,17 @@ object HlsRecorder {
         val segments = mutableListOf<Segment>()
         var duration = 0.0
         var target = 6
+        var awaitingVariantUri = false
         text.lineSequence().forEach { raw ->
             val line = raw.trim()
             when {
+                line.startsWith("#EXT-X-STREAM-INF", true) -> awaitingVariantUri = true
                 line.startsWith("#EXT-X-TARGETDURATION:") ->
                     target = line.substringAfter(':').toIntOrNull() ?: target
                 line.startsWith("#EXTINF:") ->
                     duration = line.substringAfter(':').substringBefore(',').toDoubleOrNull() ?: 0.0
+                line.isNotBlank() && !line.startsWith("#") && awaitingVariantUri ->
+                    awaitingVariantUri = false
                 line.isNotBlank() && !line.startsWith("#") -> {
                     segments += Segment(URL(url, line), duration)
                     duration = 0.0

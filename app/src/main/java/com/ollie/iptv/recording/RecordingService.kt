@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.ollie.iptv.data.OllieDatabase
+import com.ollie.iptv.data.CredentialVault
 import com.ollie.iptv.data.RecordingEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -56,7 +57,7 @@ class RecordingService : Service() {
                 val recordingId = runBlocking(Dispatchers.IO) {
                     dao.insertRecording(
                         RecordingEntity(
-                            title = title, streamUrl = url, localPath = "",
+                            title = title, streamUrl = CredentialVault.encrypt(url), localPath = "",
                             status = if (startAt > System.currentTimeMillis()) "SCHEDULED" else "RECORDING",
                             startedAt = if (startAt > System.currentTimeMillis()) 0L else System.currentTimeMillis(),
                             scheduledAt = startAt, durationMinutes = durationMinutes
@@ -70,7 +71,7 @@ class RecordingService : Service() {
                         Thread.sleep(1000L.coerceAtMost(remaining.coerceAtLeast(1L)))
                     }
                     if (!running.get()) error("Recording cancelled before start.")
-                    runBlocking(Dispatchers.IO) { dao.setRecordingStatus(recordingId, "RECORDING") }
+                    runBlocking(Dispatchers.IO) { dao.setRecordingStatus(recordingId, "RECORDING", System.currentTimeMillis()) }
                     val dir = File(getExternalFilesDir(android.os.Environment.DIRECTORY_MOVIES), "OllieTV")
                     if (!dir.exists() && !dir.mkdirs()) error("Cannot create recording directory.")
                     val isHls = URL(url).path.endsWith(".m3u8", true)

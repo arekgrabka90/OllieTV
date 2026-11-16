@@ -1,6 +1,16 @@
-# Ollie TV — Android IPTV client (0.4.0)
+# Ollie TV — Android IPTV client (0.4.1)
 
 Independent Android IPTV client. It is not based on VIREO and contains no TiviMate source code, branding, or proprietary assets. Its own dark, remote-first interface follows familiar IPTV navigation patterns.
+
+## Added in 0.4.1
+
+### Stabilization and quality gates
+- Fixed Kotlin compilation errors in remote-key handling, audio-language selection, player model typing, and recording status updates.
+- Added JVM tests for M3U parsing, XMLTV date/time parsing, Xtream API parsing/error handling, HLS recording behavior, Room persistence, and the version 1 → 2 database migration.
+- Added Android instrumented tests for Android Keystore credential encryption, decryption, legacy plaintext compatibility, and tamper detection.
+- Made playlist import, refresh replacement, and deletion database operations transactional to avoid partially applied database changes.
+- Encrypted immediate-recording source URLs before storing them in the recordings table.
+- CI now runs unit tests, builds the debug APK, and runs Android Keystore instrumented tests on an API 35 emulator.
 
 ## Added in 0.4.0
 
@@ -52,11 +62,11 @@ Independent Android IPTV client. It is not based on VIREO and contains no TiviMa
 - Automatic playlist refresh is best-effort and runs via WorkManager. M3U playlists imported from a local file cannot be refreshed automatically; re-import the file. Remote M3U and Xtream sources can refresh.
 - Xtream catch-up uses the common `timeshift.php` URL pattern; providers differ.
 - Immediate recording uses a foreground service; scheduled recording uses a foreground WorkManager worker. Android 13+ notification permission may be needed for visible notifications.
-- No Gradle build or physical Android TV/device test could be run in this environment because Gradle/Android SDK are not installed here. This archive is source code, **not a verified APK**.
+- GitHub Actions provides automated unit-test, debug-build, and Android Keystore emulator checks. Physical Android TV, tablet, and phone acceptance testing is still required before a production release. This archive is source code, not a production-certified release.
 
 ## Build
 
-Open the project folder in Android Studio with JDK 17 and Android SDK 35 installed. Sync Gradle and run the `app` configuration. Dependencies include AndroidX WorkManager 2.10.0. The Gradle wrapper properties are included; if wrapper launcher scripts are absent, generate them in Android Studio or with an installed Gradle distribution.
+Open the project folder in Android Studio with JDK 17 and Android SDK 35 installed. Sync Gradle and run the `app` configuration. The CI workflow uses Gradle 8.9, matching the checked-in wrapper distribution setting. To run checks with an installed Gradle 8.9 distribution, use `gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug`. This repository currently includes Gradle wrapper properties but not the wrapper launcher scripts/JAR.
 
 ## Legal / compatibility
 

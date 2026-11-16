@@ -16,10 +16,10 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
-import com.ollie.iptv.data.Channel
+import com.ollie.iptv.data.StreamEntity
 
 @Composable
-fun PlayerScreen(channel: Channel, onBack: () -> Unit) {
+fun PlayerScreen(channel: StreamEntity, onBack: () -> Unit) {
     val context = LocalContext.current
     val player = remember(channel.url) {
         ExoPlayer.Builder(context).build().apply {
