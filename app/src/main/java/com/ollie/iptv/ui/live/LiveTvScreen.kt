@@ -1,4 +1,7 @@
 package com.ollie.iptv.ui.live
+import coil.compose.AsyncImage
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -40,7 +43,8 @@ fun LiveTvScreen(
     onPlay: (StreamEntity) -> Unit,
     onFavorite: (StreamEntity) -> Unit,
     onLockToggle: (StreamEntity) -> Unit,
-    onAddToGroup: (StreamEntity) -> Unit
+    onAddToGroup:(StreamEntity)->Unit,
+    showLogos:Boolean=true,showCategory:Boolean=true,showRecentChannels:Boolean=true,compactRows:Boolean=false
 ) {
     var previewId by rememberSaveable { mutableStateOf<String?>(null) }
     val preview = channels.firstOrNull { it.id == previewId } ?: channels.firstOrNull()
@@ -71,7 +75,7 @@ fun LiveTvScreen(
             }
         }
 
-        if (recentChannels.isNotEmpty()) {
+        if (showRecentChannels && recentChannels.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.History, null, tint = Muted, modifier = Modifier.size(16.dp))
@@ -87,7 +91,7 @@ fun LiveTvScreen(
                             modifier = Modifier.widthIn(min = 118.dp, max = 190.dp).height(42.dp)
                         ) {
                             Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Tv, null, tint = Muted, modifier = Modifier.size(16.dp))
+                                if(showLogos&&channel.logo.isNotBlank())AsyncImage(model=channel.logo,contentDescription=null,contentScale=ContentScale.Crop,modifier=Modifier.size(22.dp)) else Icon(Icons.Default.Tv,null,tint=Muted,modifier=Modifier.size(16.dp))
                                 Spacer(Modifier.width(7.dp))
                                 Text(channel.name, maxLines = 1, fontSize = 11.sp)
                             }
@@ -111,8 +115,8 @@ fun LiveTvScreen(
                     onPlay = onPlay,
                     onFavorite = onFavorite,
                     onLockToggle = onLockToggle,
-                    onAddToGroup = onAddToGroup,
-                    modifier = Modifier.weight(0.46f).fillMaxHeight()
+                    onAddToGroup=onAddToGroup,showLogos=showLogos,showCategory=showCategory,compactRows=compactRows,
+                    modifier=Modifier.weight(0.46f).fillMaxHeight()
                 )
                 VerticalDivider(color = Color(0xFF303943))
                 ChannelPreview(
@@ -132,8 +136,8 @@ fun LiveTvScreen(
                 onPlay = onPlay,
                 onFavorite = onFavorite,
                 onLockToggle = onLockToggle,
-                onAddToGroup = onAddToGroup,
-                modifier = Modifier.weight(1f).fillMaxWidth()
+                onAddToGroup=onAddToGroup,showLogos=showLogos,showCategory=showCategory,compactRows=compactRows,
+                modifier=Modifier.weight(1f).fillMaxWidth()
             )
         }
     }
@@ -148,8 +152,9 @@ private fun ChannelList(
     onPlay: (StreamEntity) -> Unit,
     onFavorite: (StreamEntity) -> Unit,
     onLockToggle: (StreamEntity) -> Unit,
-    onAddToGroup: (StreamEntity) -> Unit,
-    modifier: Modifier = Modifier
+    onAddToGroup:(StreamEntity)->Unit,
+    showLogos:Boolean=true,showCategory:Boolean=true,compactRows:Boolean=false,
+    modifier:Modifier=Modifier
 ) {
     LazyColumn(
         modifier = modifier,
@@ -171,12 +176,13 @@ private fun ChannelList(
             ) {
                 var menuExpanded by remember(channel.id) { mutableStateOf(false) }
                 Row(
-                    Modifier.padding(start = 11.dp, end = 5.dp, top = 7.dp, bottom = 7.dp),
+                    Modifier.padding(start=if(compactRows)7.dp else 11.dp,end=5.dp,top=if(compactRows)4.dp else 7.dp,bottom=if(compactRows)4.dp else 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if(showLogos&&channel.logo.isNotBlank())AsyncImage(model=channel.logo,contentDescription="${channel.name} logo",contentScale=ContentScale.Crop,modifier=Modifier.size(if(compactRows)30.dp else 38.dp).clip(RoundedCornerShape(6.dp)))
                     Column(Modifier.weight(1f)) {
-                        Text(channel.name, maxLines = 1, fontSize = 13.sp)
-                        Text(
+                        Text(channel.name,maxLines=1,fontSize=13.sp)
+                        if(showCategory) Text(
                             if (locked) "LOCKED • ${channel.category}" else channel.category,
                             maxLines = 1,
                             color = if (locked) Color(0xFFE3B66D) else Muted,

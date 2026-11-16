@@ -47,6 +47,10 @@ import java.util.concurrent.TimeUnit
 import com.ollie.iptv.data.*
 import com.ollie.iptv.recording.RecordingService
 import com.ollie.iptv.ui.MainViewModel
+import com.ollie.iptv.ui.SettingsScreen
+import com.ollie.iptv.ui.VodDetailsScreen
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 import com.ollie.iptv.ui.live.LiveTvScreen
 import com.ollie.iptv.ui.live.ChannelSecurityDialog
 import com.ollie.iptv.ui.live.FavoriteGroupPickerDialog
@@ -124,6 +128,12 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
     var deleteGroupTarget by remember { mutableStateOf<FavoriteGroupEntity?>(null) }
     var selectedSeriesId by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedSeries = series.firstOrNull { it.id == selectedSeriesId }
+    var detailTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    val detailTarget = (movies + series).firstOrNull { it.id == detailTargetId }
+    val settings by vm.settings.collectAsState()
+    val vodDetails by vm.vodDetails.collectAsState()
+    val vodDetailsLoading by vm.vodDetailsLoading.collectAsState()
+    val vodDetailsError by vm.vodDetailsError.collectAsState()
     LaunchedEffect(search) { vm.setLiveSearch(search) }
     var catchupTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     val catchupTarget = live.firstOrNull { it.id == catchupTargetId }
@@ -148,7 +158,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
 
     BackHandler(
         enabled = selected != null || dialog.isNotBlank() || catchupTargetId != null ||
-            scheduleDialog || selectedSeriesId != null || groupPickerVisible || createGroupVisible ||
+            scheduleDialog || selectedSeriesId != null || detailTargetId != null || groupPickerVisible || createGroupVisible ||
             deleteGroupTarget != null || securityRequest != null
     ) {
         when {
@@ -158,6 +168,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
             createGroupVisible -> createGroupVisible = false
             catchupTargetId != null -> catchupTargetId = null
             scheduleDialog -> scheduleDialog = false
+            detailTargetId != null -> { detailTargetId = null; vm.clearVodDetails() }
             dialog.isNotBlank() -> dialog = ""
             selected != null -> vm.stopPlayback()
             selectedSeriesId != null -> selectedSeriesId = null
@@ -207,7 +218,8 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                     onStopRecord = {
                         context.startService(Intent(context, RecordingService::class.java).setAction(RecordingService.ACTION_STOP))
                         vm.report("Stop requested for the active recording.")
-                    }
+                    },
+                    hudTimeoutSeconds = settings.hudTimeoutSeconds
                 )
                 if (scheduleDialog) {
                     ScheduleRecordingDialog(
@@ -245,6 +257,10 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                         }
                     )
                 }
+            } else if (detailTargetId != null && detailTarget != null) {
+                VodDetailsScreen(stream=detailTarget,details=vodDetails,loading=vodDetailsLoading,error=vodDetailsError,
+                    compactRows=settings.compactRows,onBack={detailTargetId=null;vm.clearVodDetails()},
+                    onPlay={vm.requestPlay(detailTarget)},onPlayEpisode=vm::requestPlay)
             } else {
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     val availableWidth = maxWidth
@@ -283,6 +299,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                     ScreenTab.GUIDE -> "Programme schedule"
                                     ScreenTab.RECORDINGS -> "${recordings.size} recordings"
                                     ScreenTab.PLAYLISTS -> "${playlists.size} sources"
+                                    ScreenTab.SETTINGS -> "App preferences"
                                 }, color = Muted, fontSize = 13.sp)
                             }
                             if (compact) {
@@ -326,20 +343,21 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                 onAddToGroup = { stream ->
                                     groupTargetStreamId = stream.id
                                     groupPickerVisible = true
-                                }
+                                },
+                                showLogos=settings.showChannelLogos,showCategory=settings.showChannelCategory,
+                                showRecentChannels=settings.showRecentChannels,compactRows=settings.compactRows
                             )
-                            ScreenTab.MOVIES -> StreamList(movies.filter { it.name.contains(search, true) }, vm::requestPlay, vm::toggleFavorite)
+                            ScreenTab.MOVIES -> StreamList(movies.filter { it.name.contains(search,true) },vm::requestPlay,vm::toggleFavorite,
+                                onDetails={detailTargetId=it.id;vm.loadVodDetails(it)},showLogos=settings.showChannelLogos,compactRows=settings.compactRows)
                             ScreenTab.SERIES -> {
                                 if (selectedSeries == null) {
-                                    SeriesList(series.filter { it.name.contains(search, true) }, onSelect = {
-                                        selectedSeriesId = it.id
-                                        vm.loadSeries(it)
-                                    }, onFavorite = vm::toggleFavorite)
+                                    SeriesList(series.filter { it.name.contains(search,true) },onSelect={detailTargetId=it.id;vm.loadVodDetails(it)},
+                                        onFavorite=vm::toggleFavorite,showLogos=settings.showChannelLogos,compactRows=settings.compactRows)
                                 } else {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         TextButton(onClick = { selectedSeriesId = null }) { Icon(Icons.Default.ArrowBack, null); Text("All series") }
                                     }
-                                    StreamList(episodes, vm::requestPlay, vm::toggleFavorite)
+                                    StreamList(episodes,vm::requestPlay,vm::toggleFavorite,showLogos=settings.showChannelLogos,compactRows=settings.compactRows)
                                 }
                             }
                             ScreenTab.FAVORITES -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -415,6 +433,9 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                 }
                             )
                             }
+                            ScreenTab.SETTINGS -> SettingsScreen(settings=settings,onShowLogos=vm::setShowChannelLogos,
+                                onShowCategory=vm::setShowChannelCategory,onShowRecent=vm::setShowRecentChannels,
+                                onCompactRows=vm::setCompactRows,onHudTimeout=vm::setHudTimeoutSeconds)
                             ScreenTab.RECORDINGS -> {
                                 if (recordings.isEmpty()) EmptyState("No recordings yet", "Start a recording from the player.")
                                 else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -572,15 +593,19 @@ private fun StreamList(
     items: List<StreamEntity>,
     onPlay: (StreamEntity) -> Unit,
     onFavorite: (StreamEntity) -> Unit,
-    onRemoveFromGroup: ((StreamEntity) -> Unit)? = null
+    onRemoveFromGroup: ((StreamEntity) -> Unit)? = null,
+    onDetails: ((StreamEntity) -> Unit)? = null,
+    showLogos: Boolean = true,
+    compactRows: Boolean = false
 ) {
     if (items.isEmpty()) { EmptyState("Nothing here yet", "Add an M3U playlist or Xtream account."); return }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         items(items, key = { it.id }) { stream ->
-            Surface(onClick = { onPlay(stream) }, color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(42.dp).background(Color(0xFF252D36), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                        Icon(if (stream.kind == "MOVIE") Icons.Default.Movie else Icons.Default.Tv, null, tint = Color.LightGray)
+            Surface(onClick={if(onDetails!=null)onDetails(stream) else onPlay(stream)},color=Panel,shape=RoundedCornerShape(10.dp),modifier=Modifier.fillMaxWidth()){
+                Row(Modifier.padding(horizontal=14.dp,vertical=if(compactRows)7.dp else 11.dp),verticalAlignment=Alignment.CenterVertically){
+                    Box(Modifier.size(if(compactRows)36.dp else 42.dp).background(Color(0xFF252D36),RoundedCornerShape(8.dp)),contentAlignment=Alignment.Center){
+                        if(showLogos&&stream.logo.isNotBlank())AsyncImage(model=stream.logo,contentDescription="${stream.name} artwork",contentScale=ContentScale.Crop,modifier=Modifier.fillMaxSize())
+                        else Icon(if(stream.kind=="MOVIE")Icons.Default.Movie else Icons.Default.Tv,null,tint=Color.LightGray)
                     }
                     Spacer(Modifier.width(13.dp))
                     Column(Modifier.weight(1f)) {
@@ -605,13 +630,16 @@ private fun StreamList(
 
 
 @Composable
-private fun SeriesList(items: List<StreamEntity>, onSelect: (StreamEntity) -> Unit, onFavorite: (StreamEntity) -> Unit) {
+private fun SeriesList(items:List<StreamEntity>,onSelect:(StreamEntity)->Unit,onFavorite:(StreamEntity)->Unit,showLogos:Boolean=true,compactRows:Boolean=false) {
     if (items.isEmpty()) { EmptyState("No series", "Import an Xtream Codes source."); return }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         items(items, key = { it.id }) { item ->
             Surface(onClick = { onSelect(item) }, color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.VideoLibrary, null, tint = Color.LightGray)
+                Row(Modifier.padding(if(compactRows)9.dp else 14.dp),verticalAlignment=Alignment.CenterVertically){
+                    Box(Modifier.size(if(compactRows)36.dp else 48.dp).background(Color(0xFF252D36),RoundedCornerShape(8.dp)),contentAlignment=Alignment.Center){
+                        if(showLogos&&item.logo.isNotBlank())AsyncImage(model=item.logo,contentDescription="${item.name} poster",contentScale=ContentScale.Crop,modifier=Modifier.fillMaxSize())
+                        else Icon(Icons.Default.VideoLibrary,null,tint=Color.LightGray)
+                    }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(item.name, fontWeight = FontWeight.SemiBold)

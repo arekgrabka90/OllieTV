@@ -109,6 +109,59 @@ class XtreamClient(private val base: String, private val user: String, private v
         }
     }
 
+    fun fetchVodDetails(vodId:Int):VodDetails {
+        val json=fetchObject("get_vod_info","vod_id",vodId)
+        val info=json.optJSONObject("info")?:json
+        return VodDetails(title=firstNonBlank(info,"name","title"),
+            posterUrl=firstNonBlank(info,"cover_big","movie_image","cover"),
+            backdropUrl=firstArrayString(info.optJSONArray("backdrop_path")),
+            plot=firstNonBlank(info,"plot","description"),genre=info.optString("genre"),
+            releaseDate=firstNonBlank(info,"releasedate","releaseDate"),
+            duration=firstNonBlank(info,"duration","duration_secs"),
+            rating=firstNonBlank(info,"rating","rating_5based"),
+            director=info.optString("director"),cast=info.optString("cast"))
+    }
+    fun fetchSeriesDetails(seriesId:Int):VodDetails {
+        val json=fetchObject("get_series_info","series_id",seriesId)
+        val info=json.optJSONObject("info")?:JSONObject()
+        val episodeJson=json.optJSONObject("episodes")?:JSONObject()
+        val episodeList=mutableListOf<StreamEntity>()
+        val seasons=episodeJson.keys().asSequence().toList().sortedBy{it.toIntOrNull()?:Int.MAX_VALUE}
+        seasons.forEach { season ->
+            val list=episodeJson.optJSONArray(season)?:return@forEach
+            for(i in 0 until list.length()) {
+                val ep=list.optJSONObject(i)?:continue
+                val id=ep.optInt("id",-1);if(id<0)continue
+                val ext=ep.optString("container_extension","mp4").ifBlank{"mp4"}
+                episodeList+=StreamEntity(id=M3uParser.id("EPISODE|$seriesId|$id|$root"),playlistId=0L,
+                    name=ep.optString("title").ifBlank{"Episode ${i+1}"},
+                    url="$root/series/${enc(user)}/${enc(pass)}/$id.$ext",
+                    category="Season $season",kind="EPISODE",xtreamId=id)
+            }
+        }
+        val seasonArray=json.optJSONArray("seasons")
+        return VodDetails(title=firstNonBlank(info,"name","title"),
+            posterUrl=firstNonBlank(info,"cover","cover_big","movie_image"),
+            backdropUrl=firstArrayString(info.optJSONArray("backdrop_path")),
+            plot=firstNonBlank(info,"plot","description"),genre=info.optString("genre"),
+            releaseDate=firstNonBlank(info,"releaseDate","releasedate"),
+            duration=info.optString("episode_run_time"),
+            rating=firstNonBlank(info,"rating","rating_5based"),
+            director=info.optString("director"),cast=info.optString("cast"),
+            seasonCount=seasonArray?.length()?:seasons.size,episodeCount=episodeList.size,episodes=episodeList)
+    }
+    private fun fetchObject(action:String,idParameter:String,id:Int):JSONObject {
+        val url="$root/player_api.php?username=${enc(user)}&password=${enc(pass)}&action=${enc(action)}&$idParameter=$id"
+        val request=Request.Builder().url(url).header("User-Agent","OllieTV/0.4").build()
+        http.newCall(request).execute().use { response ->
+            if(!response.isSuccessful)error("Provider returned HTTP ${response.code}")
+            return JSONObject(response.body?.string().orEmpty())
+        }
+    }
+    private fun firstNonBlank(json:JSONObject,vararg keys:String):String =
+        keys.firstNotNullOfOrNull{key->json.optString(key).takeIf{it.isNotBlank()&&it!="null"}}.orEmpty()
+    private fun firstArrayString(array:JSONArray?):String = array?.let{if(it.length()>0)it.optString(0) else ""}.orEmpty()
+
     fun catchupUrl(streamId: Int, start: String, durationMinutes: Int): String =
         "$root/timeshift.php?username=${enc(user)}&password=${enc(pass)}&stream=$streamId&start=${enc(start)}&duration=$durationMinutes"
 

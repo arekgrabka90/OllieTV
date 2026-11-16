@@ -50,7 +50,8 @@ fun OlliePlayer(
     onRecord: () -> Unit,
     onStopRecord: () -> Unit,
     onSchedule: () -> Unit,
-    onCatchup: () -> Unit
+    onCatchup: () -> Unit,
+    hudTimeoutSeconds: Int = 7
 ) {
     var playbackError by remember { mutableStateOf<String?>(null) }
     var hudVisible by rememberSaveable { mutableStateOf(true) }
@@ -82,9 +83,9 @@ fun OlliePlayer(
     LaunchedEffect(Unit) {
         runCatching { focusRequester.requestFocus() }
     }
-    LaunchedEffect(hudVisible, epgVisible) {
+    LaunchedEffect(hudVisible, epgVisible, hudTimeoutSeconds) {
         if (hudVisible && !epgVisible) {
-            kotlinx.coroutines.delay(7000)
+            kotlinx.coroutines.delay(hudTimeoutSeconds.coerceIn(3,15)*1000L)
             hudVisible = false
         }
     }

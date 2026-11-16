@@ -7,5 +7,6 @@ enum class ScreenTab(val label: String) {
     SERIES("Series"),
     FAVORITES("Favorites"),
     RECORDINGS("Recordings"),
-    PLAYLISTS("Playlists")
+    PLAYLISTS("Playlists"),
+    SETTINGS("Settings")
 }

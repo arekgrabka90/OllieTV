@@ -33,6 +33,7 @@ fun OllieNavigationItem(
         ScreenTab.FAVORITES -> Icons.Default.Star
         ScreenTab.RECORDINGS -> Icons.Default.FiberManualRecord
         ScreenTab.PLAYLISTS -> Icons.Default.PlaylistPlay
+        ScreenTab.SETTINGS -> Icons.Default.Settings
     }
     Surface(
         onClick = onClick,

@@ -102,6 +102,12 @@ class PlaylistRepository(private val dao: OllieDao) {
 
     suspend fun updatePlaylist(item: PlaylistEntity) = dao.updatePlaylist(item)
 
+    suspend fun vodDetails(stream:StreamEntity):VodDetails=withContext(Dispatchers.IO) {
+        val playlist=dao.playlist(stream.playlistId)?:error("Playlist credentials not found.")
+        require(playlist.type=="XTREAM"&&stream.xtreamId>=0){"Detailed information is available for Xtream sources."}
+        val client=XtreamClient(playlist.serverUrl,CredentialVault.decrypt(playlist.username),CredentialVault.decrypt(playlist.password))
+        when(stream.kind){"MOVIE"->client.fetchVodDetails(stream.xtreamId);"SERIES"->client.fetchSeriesDetails(stream.xtreamId);else->error("Details unavailable.")}
+    }
     suspend fun seriesEpisodes(series: StreamEntity): List<StreamEntity> = withContext(Dispatchers.IO) {
         val playlist = dao.playlist(series.playlistId) ?: error("Playlist credentials not found.")
         require(playlist.type == "XTREAM" && series.xtreamId >= 0) { "This series source does not expose Xtream episode details." }

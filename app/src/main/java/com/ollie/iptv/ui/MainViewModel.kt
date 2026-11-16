@@ -33,6 +33,14 @@ data class ChannelSecurityRequest(
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val dao = OllieDatabase.get(app).dao()
     private val repository = PlaylistRepository(dao)
+    private val settingsRepository=OllieSettingsRepository(app)
+    val settings=settingsRepository.settings.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5_000),OllieSettings())
+    private val _vodDetails=MutableStateFlow<VodDetails?>(null)
+    val vodDetails:StateFlow<VodDetails?> = _vodDetails.asStateFlow()
+    private val _vodDetailsLoading=MutableStateFlow(false)
+    val vodDetailsLoading:StateFlow<Boolean> = _vodDetailsLoading.asStateFlow()
+    private val _vodDetailsError=MutableStateFlow<String?>(null)
+    val vodDetailsError:StateFlow<String?> = _vodDetailsError.asStateFlow()
     private val pinVault = ParentalPinVault(app)
     private val playbackEngine = PlaybackEngine(app)
 
@@ -98,6 +106,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy
 
+    fun setShowChannelLogos(v:Boolean)=viewModelScope.launch{settingsRepository.setShowChannelLogos(v)}
+    fun setShowChannelCategory(v:Boolean)=viewModelScope.launch{settingsRepository.setShowChannelCategory(v)}
+    fun setShowRecentChannels(v:Boolean)=viewModelScope.launch{settingsRepository.setShowRecentChannels(v)}
+    fun setCompactRows(v:Boolean)=viewModelScope.launch{settingsRepository.setCompactRows(v)}
+    fun setHudTimeoutSeconds(v:Int)=viewModelScope.launch{settingsRepository.setHudTimeoutSeconds(v)}
+    fun loadVodDetails(stream:StreamEntity)=viewModelScope.launch {
+        _vodDetails.value=null;_vodDetailsError.value=null;_vodDetailsLoading.value=true
+        try{_vodDetails.value=repository.vodDetails(stream)}
+        catch(t:Throwable){_vodDetailsError.value=t.message?:"Could not load title details."}
+        finally{_vodDetailsLoading.value=false}
+    }
+    fun clearVodDetails(){_vodDetails.value=null;_vodDetailsError.value=null;_vodDetailsLoading.value=false}
     fun setLiveSearch(value: String) { liveSearchQuery.value = value }
     fun setLiveCategory(value: String) { liveCategoryFilter.value = value }
     fun setLiveSort(value: LiveSortMode) { liveSortMode.value = value }
