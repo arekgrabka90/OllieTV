@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -46,6 +49,7 @@ fun OlliePlayer(
 ) {
     var playbackError by remember { mutableStateOf<String?>(null) }
     var hudVisible by rememberSaveable { mutableStateOf(true) }
+    var epgVisible by rememberSaveable { mutableStateOf(false) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var resizeMode by rememberSaveable { mutableIntStateOf(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT) }
@@ -72,8 +76,8 @@ fun OlliePlayer(
     LaunchedEffect(Unit) {
         runCatching { focusRequester.requestFocus() }
     }
-    LaunchedEffect(hudVisible) {
-        if (hudVisible) {
+    LaunchedEffect(hudVisible, epgVisible) {
+        if (hudVisible && !epgVisible) {
             kotlinx.coroutines.delay(7000)
             hudVisible = false
         }
@@ -100,7 +104,7 @@ fun OlliePlayer(
             when (code) {
                 android.view.KeyEvent.KEYCODE_BACK,
                 android.view.KeyEvent.KEYCODE_ESCAPE -> {
-                    onBack()
+                    if (epgVisible) { epgVisible = false; hudVisible = true } else onBack()
                     true
                 }
                 android.view.KeyEvent.KEYCODE_DPAD_CENTER,
@@ -175,10 +179,12 @@ fun OlliePlayer(
                 view.resizeMode = resizeMode
                 playerView.value = view
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().pointerInput(player) {
+                detectTapGestures { if (!epgVisible) hudVisible = true }
+            }
         )
 
-        if (hudVisible) {
+        if (hudVisible && !epgVisible) {
             Column(
                 Modifier.fillMaxWidth().align(Alignment.TopCenter)
                     .background(Color(0xCC090D12)).padding(horizontal = 22.dp, vertical = 12.dp)
@@ -189,6 +195,7 @@ fun OlliePlayer(
                         Text(stream.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         Text("${stream.category}  •  ${if (player.isPlaying) "PLAYING" else "PAUSED"}", color = Color(0xFFB7C2CC), fontSize = 11.sp)
                     }
+                    TextButton(onClick = { epgVisible = true; hudVisible = false }) { Text("GUIDE", color = Color.White, fontSize = 11.sp) }
                     TextButton(onClick = {
                         val languages = player.currentTracks.groups
                             .filter { it.type == C.TRACK_TYPE_AUDIO }
@@ -284,6 +291,49 @@ fun OlliePlayer(
                     OutlinedButton(onClick = onStopRecord) { Icon(Icons.Default.Stop, null); Text("Stop") }
                     if (stream.catchup && stream.xtreamId >= 0) {
                         OutlinedButton(onClick = onCatchup) { Text("Catch-up") }
+                    }
+                }
+            }
+        }
+
+        if (epgVisible) {
+            Surface(Modifier.fillMaxSize().padding(18.dp), color = Color(0xF20A1018), shape = RoundedCornerShape(14.dp)) {
+                Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(Modifier.widthIn(min = 170.dp, max = 270.dp).fillMaxHeight()) {
+                        Text("TV GUIDE", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("CHANNELS", color = Color(0xFF9EABB8), fontSize = 10.sp)
+                        androidx.compose.foundation.lazy.LazyColumn {
+                            items(channels.size) { i ->
+                                val item = channels[i]
+                                Surface(onClick = { onZap(item) }, color = if (item.id == stream.id) Color(0xFF26394B) else Color.Transparent, shape = RoundedCornerShape(7.dp)) {
+                                    Text(item.name, color = Color.White, modifier = Modifier.fillMaxWidth().padding(9.dp), maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                    Column(Modifier.weight(1f).fillMaxHeight()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(stream.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                                Text("PROGRAMME SCHEDULE", color = Color(0xFF9EABB8), fontSize = 10.sp)
+                            }
+                            TextButton(onClick = { epgVisible = false; hudVisible = true }) { Text("CLOSE", color = Color.White) }
+                        }
+                        if (programmes.isEmpty()) Text("No programme data available for this channel.", color = Color(0xFFB7C2CC))
+                        else androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            items(programmes.size) { i ->
+                                val pr = programmes[i]
+                                val fmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                                val active = System.currentTimeMillis() >= pr.startUtc && System.currentTimeMillis() < pr.endUtc
+                                Surface(color = if (active) Color(0xFF26394B) else Color(0xFF151E28), shape = RoundedCornerShape(8.dp)) {
+                                    Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                                        Text("${fmt.format(java.util.Date(pr.startUtc))} – ${fmt.format(java.util.Date(pr.endUtc))}", color = Color(0xFF9EABB8), fontSize = 10.sp)
+                                        Text(pr.title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                        if (pr.description.isNotBlank()) Text(pr.description, color = Color(0xFFB7C2CC), fontSize = 11.sp, maxLines = 3)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

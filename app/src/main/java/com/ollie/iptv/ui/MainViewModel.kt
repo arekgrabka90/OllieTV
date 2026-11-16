@@ -248,7 +248,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         calendar.set(java.util.Calendar.SECOND, 0)
         calendar.set(java.util.Calendar.MILLISECOND, 0)
         val start = calendar.timeInMillis
-        _guideProgrammes.value = dao.programmesForRange(start, start + 24L * 60L * 60L * 1000L)
+        val nextDay = (calendar.clone() as java.util.Calendar).apply {
+            add(java.util.Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+        _guideProgrammes.value = dao.programmesForRange(start, nextDay)
     }
     fun toggleFavorite(item: StreamEntity) = viewModelScope.launch {
         if (item.isFavorite) dao.removeStreamFromFavoriteGroups(item.id)
