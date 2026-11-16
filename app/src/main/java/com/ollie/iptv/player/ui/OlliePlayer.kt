@@ -39,6 +39,11 @@ fun OlliePlayer(
     player: ExoPlayer,
     stream: StreamEntity,
     programmes: List<ProgrammeEntity>,
+    allProgrammes: List<ProgrammeEntity> = programmes,
+    guideProgrammes: List<ProgrammeEntity> = allProgrammes,
+    guideDayOffset: Int = 0,
+    onGuideDayChange: (Int) -> Unit = {},
+    channelMappings: List<com.ollie.iptv.data.ChannelMappingEntity> = emptyList(),
     channels: List<StreamEntity>,
     onBack: () -> Unit,
     onZap: (StreamEntity) -> Unit,
@@ -59,6 +64,7 @@ fun OlliePlayer(
     val playerView = remember { mutableStateOf<PlayerView?>(null) }
     val focusRequester = remember { FocusRequester() }
     val channelIndex = channels.indexOfFirst { it.id == stream.id }
+    var browsedChannel by remember(stream.id) { mutableStateOf(stream) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -110,13 +116,15 @@ fun OlliePlayer(
                 android.view.KeyEvent.KEYCODE_DPAD_CENTER,
                 android.view.KeyEvent.KEYCODE_ENTER,
                 android.view.KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                    if (!hudVisible) {
+                    if (epgVisible) false
+                    else if (!hudVisible) {
                         hudVisible = true
                         true
                     } else false
                 }
                 android.view.KeyEvent.KEYCODE_DPAD_UP,
                 android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    if (epgVisible) return@onPreviewKeyEvent false
                     val targetIndex = if (code == android.view.KeyEvent.KEYCODE_DPAD_UP) channelIndex - 1 else channelIndex + 1
                     if (channelIndex >= 0 && targetIndex in channels.indices) {
                         val target = channels[targetIndex]
@@ -128,6 +136,7 @@ fun OlliePlayer(
                 }
                 android.view.KeyEvent.KEYCODE_CHANNEL_UP,
                 android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                    if (epgVisible) return@onPreviewKeyEvent true
                     val targetIndex = if (code == android.view.KeyEvent.KEYCODE_CHANNEL_UP) channelIndex - 1 else channelIndex + 1
                     if (channelIndex >= 0 && targetIndex in channels.indices) {
                         val target = channels[targetIndex]
@@ -139,7 +148,7 @@ fun OlliePlayer(
                 }
                 android.view.KeyEvent.KEYCODE_DPAD_LEFT,
                 android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    if (hudVisible) false
+                    if (epgVisible || hudVisible) false
                     else {
                         hudVisible = true
                         if (code == android.view.KeyEvent.KEYCODE_DPAD_LEFT) {
@@ -305,7 +314,7 @@ fun OlliePlayer(
                         androidx.compose.foundation.lazy.LazyColumn {
                             items(channels.size) { i ->
                                 val item = channels[i]
-                                Surface(onClick = { onZap(item) }, color = if (item.id == stream.id) Color(0xFF26394B) else Color.Transparent, shape = RoundedCornerShape(7.dp)) {
+                                Surface(onClick = { browsedChannel = item }, color = if (item.id == browsedChannel.id) Color(0xFF26394B) else Color.Transparent, shape = RoundedCornerShape(7.dp)) {
                                     Text(item.name, color = Color.White, modifier = Modifier.fillMaxWidth().padding(9.dp), maxLines = 1)
                                 }
                             }
@@ -314,15 +323,23 @@ fun OlliePlayer(
                     Column(Modifier.weight(1f).fillMaxHeight()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(stream.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                                Text("PROGRAMME SCHEDULE", color = Color(0xFF9EABB8), fontSize = 10.sp)
+                                Text(browsedChannel.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                                Text("PROGRAMME SCHEDULE • ${if (browsedChannel.id == stream.id) "NOW PLAYING" else "PREVIEW"}", color = Color(0xFF9EABB8), fontSize = 10.sp)
+                            }
+                            TextButton(onClick = { onGuideDayChange((guideDayOffset - 1).coerceAtLeast(0)) }) { Text("‹ DAY", color = Color.White) }
+                            TextButton(onClick = { onGuideDayChange(0) }) { Text("TODAY", color = Color.White) }
+                            TextButton(onClick = { onGuideDayChange((guideDayOffset + 1).coerceAtMost(6)) }) { Text("DAY ›", color = Color.White) }
+                            if (browsedChannel.id != stream.id) {
+                                Button(onClick = { onZap(browsedChannel); epgVisible = false; hudVisible = true }) { Text("WATCH") }
                             }
                             TextButton(onClick = { epgVisible = false; hudVisible = true }) { Text("CLOSE", color = Color.White) }
                         }
-                        if (programmes.isEmpty()) Text("No programme data available for this channel.", color = Color(0xFFB7C2CC))
+                        val mappedEpgId = channelMappings.firstOrNull { it.streamId == browsedChannel.id }?.xmltvChannelId ?: browsedChannel.tvgId
+                        val visibleProgrammes = guideProgrammes.filter { it.channelId == mappedEpgId }.sortedBy { it.startUtc }
+                        if (visibleProgrammes.isEmpty()) Text("No programme data available for this channel.", color = Color(0xFFB7C2CC))
                         else androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                            items(programmes.size) { i ->
-                                val pr = programmes[i]
+                            items(visibleProgrammes.size) { i ->
+                                val pr = visibleProgrammes[i]
                                 val fmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
                                 val active = System.currentTimeMillis() >= pr.startUtc && System.currentTimeMillis() < pr.endUtc
                                 Surface(color = if (active) Color(0xFF26394B) else Color(0xFF151E28), shape = RoundedCornerShape(8.dp)) {

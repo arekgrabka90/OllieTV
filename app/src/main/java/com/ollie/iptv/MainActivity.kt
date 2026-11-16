@@ -1,5 +1,8 @@
 package com.ollie.iptv
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.content.Intent
 import android.net.Uri
 import java.io.File
@@ -100,6 +103,10 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
     val favorites by vm.favorites.collectAsState(initial = emptyList())
     val recordings by vm.recordings.collectAsState(initial = emptyList())
     val playlists by vm.playlists.collectAsState(initial = emptyList())
+    val epgSources by vm.epgSources.collectAsState(initial = emptyList())
+    val epgChannels by vm.epgChannels.collectAsState(initial = emptyList())
+    val channelMappings by vm.channelMappings.collectAsState(initial = emptyList())
+    val scheduledProgrammeReminders by vm.scheduledProgrammeReminders.collectAsState(initial = emptyList())
     val guideProgrammes by vm.guideProgrammes.collectAsState()
     val guideDayOffset by vm.guideDayOffset.collectAsState()
     LaunchedEffect(Unit) { vm.loadGuideDay(0) }
@@ -121,6 +128,22 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
     var catchupTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     val catchupTarget = live.firstOrNull { it.id == catchupTargetId }
     var scheduleDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingProgrammeReminder by remember { mutableStateOf<Triple<StreamEntity, ProgrammeEntity, Int>?>(null) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        pendingProgrammeReminder?.let { (channel, programme, minutes) ->
+            if (granted) vm.scheduleProgrammeReminder(channel, programme, minutes)
+            else vm.report("Notification permission was denied; the reminder was not scheduled.")
+        }
+        pendingProgrammeReminder = null
+    }
+    val scheduleProgrammeReminder: (StreamEntity, ProgrammeEntity, Int) -> Unit = { channel, programme, minutes ->
+        if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED) {
+            pendingProgrammeReminder = Triple(channel, programme, minutes)
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else vm.scheduleProgrammeReminder(channel, programme, minutes)
+    }
     val player by vm.player.collectAsState()
 
     BackHandler(
@@ -162,6 +185,11 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                     player = player!!,
                     stream = selected!!,
                     programmes = vm.programmes.collectAsState().value,
+                    allProgrammes = previewProgrammes,
+                    guideProgrammes = guideProgrammes,
+                    guideDayOffset = guideDayOffset,
+                    onGuideDayChange = vm::loadGuideDay,
+                    channelMappings = channelMappings,
                     onBack = vm::stopPlayback,
                     channels = live,
                     onZap = vm::requestPlay,
@@ -354,9 +382,22 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                             }
                             ScreenTab.GUIDE -> GuideList(
                                 channels = live, programmes = guideProgrammes, query = search,
-                                dayOffset = guideDayOffset, onDayChange = vm::loadGuideDay, onPlay = vm::requestPlay
+                                dayOffset = guideDayOffset, onDayChange = vm::loadGuideDay,
+                                onPlay = vm::requestPlay, onReminder = scheduleProgrammeReminder,
+                                epgChannels = epgChannels, onMap = vm::saveManualEpgMapping,
+                                mappings = channelMappings, reminders = scheduledProgrammeReminders,
+                                onCancelReminder = vm::cancelProgrammeReminder
                             )
-                            ScreenTab.PLAYLISTS -> PlaylistManagerList(
+                            ScreenTab.PLAYLISTS -> Column(Modifier.fillMaxSize()) {
+                                EpgSourcesPanel(
+                                    sources = epgSources,
+                                    onAdd = vm::addEpgSource,
+                                    onRefresh = vm::refreshEpgSource,
+                                    onEnabled = vm::setEpgSourceEnabled,
+                                    onDelete = vm::deleteEpgSource
+                                )
+                                PlaylistManagerList(
+                                modifier = Modifier.weight(1f),
                                 playlists = playlists,
                                 onEnabled = vm::setPlaylistEnabled,
                                 onSettings = vm::updatePlaylistSettings,
@@ -373,6 +414,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                     }
                                 }
                             )
+                            }
                             ScreenTab.RECORDINGS -> {
                                 if (recordings.isEmpty()) EmptyState("No recordings yet", "Start a recording from the player.")
                                 else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -620,10 +662,17 @@ private fun GuideList(
     query: String,
     dayOffset: Int,
     onDayChange: (Int) -> Unit,
-    onPlay: (StreamEntity) -> Unit
+    onPlay: (StreamEntity) -> Unit,
+    onReminder: (StreamEntity, ProgrammeEntity, Int) -> Unit,
+    epgChannels: List<EpgChannelEntity>,
+    onMap: (String, String) -> Unit,
+    mappings: List<ChannelMappingEntity>,
+    reminders: List<ProgrammeReminderEntity>,
+    onCancelReminder: (ProgrammeReminderEntity) -> Unit
 ) {
     var selectedProgramme by remember { mutableStateOf<ProgrammeEntity?>(null) }
     var selectedChannel by remember { mutableStateOf<StreamEntity?>(null) }
+    var mappingChannel by remember { mutableStateOf<StreamEntity?>(null) }
     val dayCalendar = java.util.Calendar.getInstance().apply {
         add(java.util.Calendar.DAY_OF_YEAR, dayOffset)
     }
@@ -633,13 +682,31 @@ private fun GuideList(
         set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
     }
     val dayStart = startCalendar.timeInMillis
-    val dayEnd = dayStart + 24L * 60L * 60L * 1000L
+    val endCalendar = (startCalendar.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, 1) }
+    val dayEnd = endCalendar.timeInMillis
+    val dayHours = ((dayEnd - dayStart) / 3_600_000L).toInt().coerceIn(23, 25)
     val scale = 2.0f
     val timelineScrollState = rememberScrollState()
-    val visibleChannels = channels.filter { it.name.contains(query, true) }
+    val programmesByChannel = remember(programmes) { programmes.groupBy { it.channelId } }
+    val mappingByStream = remember(mappings) { mappings.associateBy { it.streamId } }
+    val visibleChannels = channels.filter { channel ->
+        val epgId = mappingByStream[channel.id]?.xmltvChannelId ?: channel.tvgId
+        query.isBlank() || channel.name.contains(query, true) || programmesByChannel[epgId].orEmpty().any {
+            it.title.contains(query, true) || it.description.contains(query, true)
+        }
+    }
     if (channels.isEmpty()) { EmptyState("No channels", "Import a playlist first."); return }
 
     Column(Modifier.fillMaxSize()) {
+        if (reminders.isNotEmpty()) {
+            Text("UPCOMING REMINDERS", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            reminders.take(3).forEach { reminder ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${reminder.programmeTitle} • ${reminder.minutesBefore} min", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                    TextButton(onClick = { onCancelReminder(reminder) }) { Text("Cancel") }
+                }
+            }
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onDayChange(dayOffset - 1) }) { Icon(Icons.Default.ChevronLeft, null); Text("Previous") }
             Text(dayLabel, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -652,7 +719,7 @@ private fun GuideList(
                 Text("CHANNEL", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
             Row(Modifier.weight(1f).horizontalScroll(timelineScrollState)) {
-                repeat(24) { hour ->
+                repeat(dayHours) { hour ->
                     Box(Modifier.width((60 * scale).dp).height(36.dp), contentAlignment = Alignment.CenterStart) {
                         Text("%02d:00".format(hour), color = Muted, fontSize = 11.sp)
                     }
@@ -662,16 +729,22 @@ private fun GuideList(
         HorizontalDivider(color = Color(0xFF303943))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(5.dp)) {
             items(visibleChannels, key = { it.id }) { channel ->
-                val channelProgrammes = programmes.filter {
-                    it.channelId == channel.tvgId && it.startUtc < dayEnd && it.endUtc > dayStart
+                val channelEpgId = mappingByStream[channel.id]?.xmltvChannelId ?: channel.tvgId
+                val channelProgrammes = programmesByChannel[channelEpgId].orEmpty().filter {
+                    it.startUtc < dayEnd && it.endUtc > dayStart
                 }.sortedBy { it.startUtc }
                 Row(Modifier.fillMaxWidth().height(78.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.width(170.dp).padding(end = 8.dp)) {
                         Text(channel.name, color = Color.White, fontSize = 12.sp, maxLines = 2)
                         Text(channel.category, color = Muted, fontSize = 10.sp, maxLines = 1)
-                        TextButton(onClick = { onPlay(channel) }, contentPadding = PaddingValues(0.dp)) {
-                            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(14.dp))
-                            Text("Watch", fontSize = 10.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { onPlay(channel) }, contentPadding = PaddingValues(0.dp)) {
+                                Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(14.dp))
+                                Text("Watch", fontSize = 10.sp)
+                            }
+                            TextButton(onClick = { mappingChannel = channel }, contentPadding = PaddingValues(0.dp)) {
+                                Text("EPG map", fontSize = 10.sp)
+                            }
                         }
                     }
                     Row(
@@ -679,7 +752,7 @@ private fun GuideList(
                             .background(Color(0xFF10151B), RoundedCornerShape(7.dp))
                     ) {
                         if (channelProgrammes.isEmpty()) {
-                            Box(Modifier.width((24 * 60 * scale).dp).height(72.dp), contentAlignment = Alignment.CenterStart) {
+                            Box(Modifier.width((dayHours * 60 * scale).dp).height(72.dp), contentAlignment = Alignment.CenterStart) {
                                 Text("No programme data for this channel", color = Muted, fontSize = 11.sp)
                             }
                         } else {
@@ -704,6 +777,11 @@ private fun GuideList(
                                             color = Color(0xFFB8C6D3), fontSize = 9.sp
                                         )
                                         Text(programme.title, color = Color.White, fontSize = 11.sp, maxLines = 2)
+                                        if (System.currentTimeMillis() in programme.startUtc until programme.endUtc) {
+                                            val progress = ((System.currentTimeMillis() - programme.startUtc).toFloat() /
+                                                (programme.endUtc - programme.startUtc).coerceAtLeast(1L).toFloat()).coerceIn(0f, 1f)
+                                            LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth().padding(top = 3.dp))
+                                        }
                                     }
                                 }
                             }
@@ -717,6 +795,34 @@ private fun GuideList(
                 HorizontalDivider(color = Color(0xFF202832))
             }
         }
+    }
+
+    mappingChannel?.let { channel ->
+        val suggestions = remember(channel.id, epgChannels) { EpgMatching.suggest(channel, epgChannels) }
+        val orderedChannels = remember(channel.id, epgChannels) {
+            val scores = suggestions.associate { it.xmltvId to it.score }
+            epgChannels.distinctBy { it.xmltvId }
+                .sortedWith(compareByDescending<EpgChannelEntity> { scores[it.xmltvId] ?: 0 }.thenBy { it.displayName.lowercase() })
+        }
+        AlertDialog(
+            onDismissRequest = { mappingChannel = null },
+            title = { Text("Map EPG: ${channel.name}") },
+            text = {
+                if (orderedChannels.isEmpty()) Text("No XMLTV channel metadata available. Add an EPG source first.")
+                else LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(orderedChannels, key = { it.id }) { epg ->
+                        TextButton(onClick = { onMap(channel.id, epg.xmltvId); mappingChannel = null }) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Text(epg.displayName.ifBlank { epg.xmltvId })
+                                val score = suggestions.firstOrNull { it.xmltvId == epg.xmltvId }
+                                Text("${epg.xmltvId}${when { score?.exactId == true -> " • exact tvg-id"; score != null -> " • suggestion ${score.score}%"; else -> "" }}", color = Muted, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { mappingChannel = null }) { Text("Close") } }
+        )
     }
 
     selectedProgramme?.let { programme ->
@@ -739,13 +845,51 @@ private fun GuideList(
                     selectedProgramme = null
                 }) { Text("Watch channel") }
             },
-            dismissButton = { TextButton(onClick = { selectedProgramme = null }) { Text("Close") } }
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { selectedChannel?.let { onReminder(it, programme, 5) }; selectedProgramme = null }) { Text("Remind 5m") }
+                    TextButton(onClick = { selectedChannel?.let { onReminder(it, programme, 10) }; selectedProgramme = null }) { Text("10m") }
+                    TextButton(onClick = { selectedChannel?.let { onReminder(it, programme, 15) }; selectedProgramme = null }) { Text("15m") }
+                    TextButton(onClick = { selectedProgramme = null }) { Text("Close") }
+                }
+            }
         )
     }
 }
 
 @Composable
+private fun EpgSourcesPanel(
+    sources: List<EpgSourceEntity>,
+    onAdd: (String, String) -> Unit,
+    onRefresh: (EpgSourceEntity) -> Unit,
+    onEnabled: (EpgSourceEntity, Boolean) -> Unit,
+    onDelete: (Long) -> Unit
+) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var url by rememberSaveable { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text("XMLTV SOURCES", color = Color.White, fontWeight = FontWeight.Bold)
+        OutlinedTextField(value = name, onValueChange = { name = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Name") })
+        OutlinedTextField(value = url, onValueChange = { url = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("XMLTV URL") })
+        Button(onClick = { onAdd(name, url); name = ""; url = "" }, enabled = url.startsWith("http://") || url.startsWith("https://")) { Text("Add EPG source") }
+        if (sources.isEmpty()) Text("No additional EPG sources configured.", color = Muted, fontSize = 11.sp)
+        sources.forEach { source ->
+            Row(Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(8.dp)).padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(source.name, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("${source.status} • ${source.lastError.ifBlank { if (source.lastUpdatedAt > 0) java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(source.lastUpdatedAt)) else "Not imported" }}", color = Muted, fontSize = 10.sp, maxLines = 2)
+                }
+                Switch(checked = source.enabled, onCheckedChange = { onEnabled(source, it) })
+                IconButton(onClick = { onRefresh(source) }) { Icon(Icons.Default.Refresh, "Refresh EPG") }
+                IconButton(onClick = { onDelete(source.id) }) { Icon(Icons.Default.DeleteOutline, "Delete EPG source") }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PlaylistManagerList(
+    modifier: Modifier = Modifier,
     playlists: List<PlaylistEntity>,
     onEnabled: (PlaylistEntity, Boolean) -> Unit,
     onSettings: (PlaylistEntity, String, Int, String) -> Unit,
@@ -755,9 +899,9 @@ private fun PlaylistManagerList(
 ) {
     var pendingDelete by remember { mutableStateOf<PlaylistEntity?>(null) }
     if (playlists.isEmpty()) {
-        EmptyState("No playlists", "Add an M3U or Xtream Codes source.")
+        Box(modifier) { EmptyState("No playlists", "Add an M3U or Xtream Codes source.") }
     } else {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(9.dp)) {
             items(playlists, key = { it.id }) { playlist ->
                 var playlistName by remember(playlist.id, playlist.name) { mutableStateOf(playlist.name) }
                 var epgUrl by remember(playlist.id, playlist.epgUrl) { mutableStateOf(playlist.epgUrl) }

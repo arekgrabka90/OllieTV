@@ -24,11 +24,17 @@ interface OllieDao {
     suspend fun deletePlaylistChannelLocks(id: Long)
     @Query("DELETE FROM channel_history WHERE streamId IN (SELECT id FROM streams WHERE playlistId = :id)")
     suspend fun deletePlaylistChannelHistory(id: Long)
+    @Query("DELETE FROM channel_mappings WHERE streamId IN (SELECT id FROM streams WHERE playlistId = :id)")
+    suspend fun deletePlaylistChannelMappings(id: Long)
+    @Query("DELETE FROM programme_reminders WHERE streamId IN (SELECT id FROM streams WHERE playlistId = :id)")
+    suspend fun deletePlaylistProgrammeReminders(id: Long)
     @Transaction
     suspend fun deletePlaylistAndStreams(id: Long) {
         deletePlaylistGroupMemberships(id)
         deletePlaylistChannelLocks(id)
         deletePlaylistChannelHistory(id)
+        deletePlaylistChannelMappings(id)
+        deletePlaylistProgrammeReminders(id)
         deletePlaylistStreams(id)
         deletePlaylist(id)
     }
@@ -130,6 +136,56 @@ interface OllieDao {
     suspend fun programmesForRange(startUtc: Long, endUtc: Long): List<ProgrammeEntity>
     @Query("DELETE FROM programmes WHERE startUtc < :beforeUtc")
     suspend fun deleteOldProgrammes(beforeUtc: Long)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEpgSource(item: EpgSourceEntity): Long
+    @Update
+    suspend fun updateEpgSource(item: EpgSourceEntity)
+    @Query("SELECT * FROM epg_sources ORDER BY id")
+    fun epgSources(): Flow<List<EpgSourceEntity>>
+    @Query("SELECT * FROM epg_sources WHERE id = :id LIMIT 1")
+    suspend fun epgSource(id: Long): EpgSourceEntity?
+    @Query("SELECT * FROM epg_sources WHERE url = :url LIMIT 1")
+    suspend fun epgSourceByUrl(url: String): EpgSourceEntity?
+    @Query("DELETE FROM epg_sources WHERE id = :id")
+    suspend fun deleteEpgSource(id: Long)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEpgChannels(items: List<EpgChannelEntity>)
+    @Query("DELETE FROM epg_channels WHERE sourceId = :sourceId")
+    suspend fun clearEpgChannels(sourceId: Long)
+    @Query("SELECT * FROM epg_channels ORDER BY displayName COLLATE NOCASE")
+    fun epgChannels(): Flow<List<EpgChannelEntity>>
+    @Query("SELECT * FROM epg_channels WHERE sourceId = :sourceId")
+    suspend fun epgChannelsForSource(sourceId: Long): List<EpgChannelEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveChannelMapping(item: ChannelMappingEntity)
+    @Query("SELECT * FROM channel_mappings WHERE streamId = :streamId LIMIT 1")
+    suspend fun channelMapping(streamId: String): ChannelMappingEntity?
+    @Query("SELECT * FROM channel_mappings")
+    fun channelMappings(): Flow<List<ChannelMappingEntity>>
+    @Query("DELETE FROM channel_mappings WHERE streamId = :streamId")
+    suspend fun deleteChannelMapping(streamId: String)
+    @Query("DELETE FROM programmes WHERE id LIKE :prefix")
+    suspend fun deleteProgrammesForSource(prefix: String)
+    @Transaction
+    suspend fun replaceEpgSourceData(sourceId: Long, channels: List<EpgChannelEntity>, programmes: List<ProgrammeEntity>) {
+        clearEpgChannels(sourceId)
+        deleteProgrammesForSource("$sourceId|%")
+        if (channels.isNotEmpty()) insertEpgChannels(channels)
+        if (programmes.isNotEmpty()) insertProgrammes(programmes)
+    }
+    @Insert
+    suspend fun insertProgrammeReminder(item: ProgrammeReminderEntity): Long
+    @Query("SELECT * FROM programme_reminders WHERE id = :id LIMIT 1")
+    suspend fun programmeReminder(id: Long): ProgrammeReminderEntity?
+    @Query("UPDATE programme_reminders SET status = :status WHERE id = :id")
+    suspend fun updateProgrammeReminderStatus(id: Long, status: String)
+    @Query("UPDATE programme_reminders SET status = 'REPLACED' WHERE workName = :workName AND status = 'SCHEDULED'")
+    suspend fun replaceScheduledReminder(workName: String)
+    @Query("DELETE FROM programme_reminders WHERE id = :id")
+    suspend fun deleteProgrammeReminder(id: Long)
+    @Query("SELECT * FROM programme_reminders WHERE status = 'SCHEDULED' ORDER BY programmeStartUtc")
+    fun scheduledProgrammeReminders(): Flow<List<ProgrammeReminderEntity>>
+
     @Insert
     suspend fun insertRecording(item: RecordingEntity): Long
     @Query("SELECT * FROM recordings ORDER BY startedAt DESC")
@@ -148,9 +204,11 @@ interface OllieDao {
     entities = [
         PlaylistEntity::class, StreamEntity::class, ProgrammeEntity::class, RecordingEntity::class,
         FavoriteGroupEntity::class, FavoriteGroupChannelEntity::class,
-        ChannelHistoryEntity::class, ChannelLockEntity::class
+        ChannelHistoryEntity::class, ChannelLockEntity::class,
+        EpgSourceEntity::class, EpgChannelEntity::class,
+        ChannelMappingEntity::class, ProgrammeReminderEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class OllieDatabase : RoomDatabase() {
@@ -199,11 +257,42 @@ abstract class OllieDatabase : RoomDatabase() {
                 """.trimIndent())
             }
         }
+        internal val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""CREATE TABLE IF NOT EXISTS epg_sources (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    playlistId INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL, url TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'NEVER',
+                    lastUpdatedAt INTEGER NOT NULL DEFAULT 0, lastError TEXT NOT NULL DEFAULT ''
+                )""".trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_sources_playlistId ON epg_sources(playlistId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_sources_enabled ON epg_sources(enabled)")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS epg_channels (
+                    id TEXT NOT NULL PRIMARY KEY, sourceId INTEGER NOT NULL, xmltvId TEXT NOT NULL,
+                    displayName TEXT NOT NULL, iconUrl TEXT NOT NULL
+                )""".trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_channels_sourceId ON epg_channels(sourceId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_channels_xmltvId ON epg_channels(xmltvId)")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS channel_mappings (
+                    streamId TEXT NOT NULL PRIMARY KEY, xmltvChannelId TEXT NOT NULL,
+                    matchType TEXT NOT NULL, updatedAt INTEGER NOT NULL
+                )""".trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_channel_mappings_xmltvChannelId ON channel_mappings(xmltvChannelId)")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS programme_reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, streamId TEXT NOT NULL,
+                    programmeId TEXT NOT NULL, programmeTitle TEXT NOT NULL, programmeStartUtc INTEGER NOT NULL,
+                    minutesBefore INTEGER NOT NULL, workName TEXT NOT NULL, status TEXT NOT NULL,
+                    createdAt INTEGER NOT NULL
+                )""".trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_programme_reminders_streamId ON programme_reminders(streamId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_programme_reminders_programmeStartUtc ON programme_reminders(programmeStartUtc)")
+            }
+        }
         @Volatile private var INSTANCE: OllieDatabase? = null
         fun get(context: Context): OllieDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext, OllieDatabase::class.java, "ollie-tv.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { INSTANCE = it }
         }
     }
 }

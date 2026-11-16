@@ -45,11 +45,20 @@ class OllieDatabaseTest {
             assertEquals("News", database.dao().recentLiveStreams(12).first().single().name)
             database.dao().lockChannel(ChannelLockEntity(streamId, 1235L))
             assertEquals(true, database.dao().isChannelLocked(streamId))
+            database.dao().saveChannelMapping(ChannelMappingEntity(streamId, "news.xml", "MANUAL"))
+            assertEquals("news.xml", database.dao().channelMapping(streamId)?.xmltvChannelId)
+            val reminderId = database.dao().insertProgrammeReminder(ProgrammeReminderEntity(
+                streamId = streamId, programmeId = "news-1", programmeTitle = "Headlines",
+                programmeStartUtc = 9_999_999L, minutesBefore = 5, workName = "reminder-test"
+            ))
+            assertEquals("Headlines", database.dao().programmeReminder(reminderId)?.programmeTitle)
 
             database.dao().deletePlaylistAndStreams(playlistId)
             assertEquals(0, database.dao().allStreams().first().size)
             assertEquals(null, database.dao().playlist(playlistId))
             assertEquals(false, database.dao().isChannelLocked(streamId))
+            assertEquals(null, database.dao().channelMapping(streamId))
+            assertEquals(null, database.dao().programmeReminder(reminderId))
             assertEquals(emptyList<StreamEntity>(), database.dao().recentLiveStreams(12).first())
         } finally {
             database.close()
@@ -95,7 +104,7 @@ class OllieDatabaseTest {
         }
 
         val migrated = Room.databaseBuilder(context, OllieDatabase::class.java, name)
-            .addMigrations(OllieDatabase.MIGRATION_1_2, OllieDatabase.MIGRATION_2_3)
+            .addMigrations(OllieDatabase.MIGRATION_1_2, OllieDatabase.MIGRATION_2_3, OllieDatabase.MIGRATION_3_4)
             .allowMainThreadQueries().build()
         try {
             val playlist = runBlocking { migrated.dao().playlist(1L) }
@@ -107,6 +116,8 @@ class OllieDatabaseTest {
             assertEquals(1, runBlocking { migrated.dao().favorites().first().size })
             assertEquals(emptyList<FavoriteGroupEntity>(), runBlocking { migrated.dao().favoriteGroups().first() })
             assertEquals(emptyList<ChannelLockEntity>(), runBlocking { migrated.dao().channelLocks().first() })
+            val sourceId = runBlocking { migrated.dao().insertEpgSource(EpgSourceEntity(name = "Migration feed", url = "https://example.test/guide.xml")) }
+            assertEquals("Migration feed", runBlocking { migrated.dao().epgSource(sourceId)?.name })
         } finally {
             migrated.close()
             context.deleteDatabase(name)

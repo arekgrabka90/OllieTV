@@ -2,6 +2,7 @@ package com.ollie.iptv.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URL
@@ -118,9 +119,59 @@ class PlaylistRepository(private val dao: OllieDao) {
     }
 
     suspend fun importEpg(url: String): Int = withContext(Dispatchers.IO) {
-        val input = URL(url).openConnection().apply {
-            connectTimeout = 20000; readTimeout = 90000
-        }.getInputStream()
-        input.use { val programmes = XmlTvParser.parse(it); dao.insertProgrammes(programmes); programmes.size }
+        require(url.isNotBlank()) { "EPG URL is empty." }
+        val existing = dao.epgSourceByUrl(url)
+        val sourceId = existing?.id ?: dao.insertEpgSource(EpgSourceEntity(
+            name = url.substringAfterLast('/').substringBefore('?').ifBlank { "XMLTV feed" }, url = url
+        ))
+        val source = existing ?: EpgSourceEntity(id = sourceId,
+            name = url.substringAfterLast('/').substringBefore('?').ifBlank { "XMLTV feed" }, url = url)
+        try {
+            val request = Request.Builder().url(url).header("User-Agent", "OllieTV/0.4").build()
+            val document = http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) error("EPG server returned HTTP ${response.code}")
+                val body = response.body ?: error("EPG server returned an empty response.")
+                body.byteStream().use { XmlTvParser.parseDocument(it, sourceId) }
+            }
+            require(document.programmes.isNotEmpty()) { "EPG feed contains no valid programmes; previous data was preserved." }
+            dao.replaceEpgSourceData(sourceId, document.channels, document.programmes)
+            val streams = dao.allStreams().first()
+            val exact = streams.filter { it.kind == "LIVE" && it.tvgId.isNotBlank() }
+            exact.forEach { stream ->
+                if (document.channels.any { it.xmltvId.equals(stream.tvgId, true) }) {
+                    val existingMapping = dao.channelMapping(stream.id)
+                    if (existingMapping == null || existingMapping.matchType != "MANUAL") {
+                        dao.saveChannelMapping(ChannelMappingEntity(stream.id, stream.tvgId, "TVG_ID"))
+                    }
+                }
+            }
+            dao.updateEpgSource(source.copy(status = "OK", lastUpdatedAt = System.currentTimeMillis(), lastError = ""))
+            document.programmes.size
+        } catch (t: Throwable) {
+            dao.updateEpgSource(source.copy(status = "ERROR", lastError = t.message ?: "EPG import failed."))
+            throw t
+        }
+    }
+
+    suspend fun addEpgSource(name: String, url: String): Long {
+        require(url.isNotBlank()) { "EPG URL is empty." }
+        require(dao.epgSourceByUrl(url) == null) { "This EPG source already exists." }
+        return dao.insertEpgSource(EpgSourceEntity(name = name.trim().ifBlank { "XMLTV feed" }, url = url.trim()))
+    }
+
+    suspend fun setEpgSourceEnabled(id: Long, enabled: Boolean) {
+        dao.epgSource(id)?.let { dao.updateEpgSource(it.copy(enabled = enabled)) }
+    }
+
+    suspend fun deleteEpgSource(id: Long) {
+        dao.deleteProgrammesForSource("$id|%")
+        dao.clearEpgChannels(id)
+        dao.deleteEpgSource(id)
+    }
+
+    suspend fun saveManualEpgMapping(streamId: String, xmltvId: String) {
+        require(dao.stream(streamId) != null) { "Channel no longer exists." }
+        require(xmltvId.isNotBlank()) { "Select an EPG channel." }
+        dao.saveChannelMapping(ChannelMappingEntity(streamId, xmltvId, "MANUAL"))
     }
 }

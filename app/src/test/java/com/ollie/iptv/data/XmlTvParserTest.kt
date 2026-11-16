@@ -8,6 +8,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.ByteArrayInputStream
 import java.time.Instant
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -31,6 +33,19 @@ class XmlTvParserTest {
         val xml = """<tv><programme start="20240101120000" stop="20240101123000" channel="c1"><title>Programme</title></programme></tv>"""
         val result = XmlTvParser.parse(ByteArrayInputStream(xml.toByteArray()))
         assertEquals(Instant.parse("2024-01-01T12:00:00Z").toEpochMilli(), result.single().startUtc)
+    }
+
+    @Test fun parsesChannelMetadataAndGzipXmltv() {
+        val xml = """<tv><channel id="news.uk"><display-name>News UK</display-name><icon src="https://example.test/logo.png"/></channel><programme start="20240101120000 +0000" stop="20240101130000 +0000" channel="news.uk"><title>Headlines</title></programme></tv>"""
+        val bytes = ByteArrayOutputStream().also { output ->
+            GZIPOutputStream(output).use { it.write(xml.toByteArray()) }
+        }.toByteArray()
+        val result = XmlTvParser.parseDocument(ByteArrayInputStream(bytes), 42L)
+        assertEquals("news.uk", result.channels.single().xmltvId)
+        assertEquals("News UK", result.channels.single().displayName)
+        assertEquals("https://example.test/logo.png", result.channels.single().iconUrl)
+        assertEquals("news.uk", result.programmes.single().channelId)
+        assertTrue(result.programmes.single().id.startsWith("42|"))
     }
 
     @Test fun skipsMissingTitleInvalidRangeAndMalformedDates() {

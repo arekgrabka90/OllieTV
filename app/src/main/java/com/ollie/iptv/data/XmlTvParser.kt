@@ -2,68 +2,81 @@ package com.ollie.iptv.data
 
 import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
+import java.io.BufferedInputStream
 import java.io.InputStream
 import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.zip.GZIPInputStream
+
+data class XmlTvDocument(val channels: List<EpgChannelEntity>, val programmes: List<ProgrammeEntity>)
 
 object XmlTvParser {
-    fun parse(input: InputStream): List<ProgrammeEntity> {
+    fun parse(input: InputStream): List<ProgrammeEntity> = parseDocument(input, 0L).programmes
+
+    fun parseDocument(input: InputStream, sourceId: Long): XmlTvDocument {
+        val buffered = if (input is BufferedInputStream) input else BufferedInputStream(input)
+        buffered.mark(4)
+        val magic = ByteArray(2)
+        val count = buffered.read(magic)
+        buffered.reset()
+        val decoded = if (count == 2 && magic[0] == 0x1f.toByte() && magic[1] == 0x8b.toByte())
+            GZIPInputStream(buffered) else buffered
         val parser = Xml.newPullParser()
-        parser.setInput(input, null)
-        val output = mutableListOf<ProgrammeEntity>()
+        parser.setInput(decoded, null)
+        val channels = mutableListOf<EpgChannelEntity>()
+        val programmes = mutableListOf<ProgrammeEntity>()
         var event = parser.eventType
-        var channel = ""; var title = ""; var desc = ""
+        var channelId = ""; var channelName = ""; var channelIcon = ""
+        var programmeChannel = ""; var title = ""; var desc = ""
         var start: Long? = null; var end: Long? = null
         while (event != XmlPullParser.END_DOCUMENT) {
             when (event) {
                 XmlPullParser.START_TAG -> when (parser.name) {
+                    "channel" -> { channelId = parser.getAttributeValue(null, "id").orEmpty().trim(); channelName = ""; channelIcon = "" }
+                    "display-name" -> if (channelName.isBlank()) channelName = parser.nextText().trim()
+                    "icon" -> if (channelIcon.isBlank()) channelIcon = parser.getAttributeValue(null, "src").orEmpty().trim()
                     "programme" -> {
-                        channel = parser.getAttributeValue(null, "channel").orEmpty()
+                        programmeChannel = parser.getAttributeValue(null, "channel").orEmpty().trim()
                         start = parseDate(parser.getAttributeValue(null, "start").orEmpty())
                         end = parseDate(parser.getAttributeValue(null, "stop").orEmpty())
                         title = ""; desc = ""
                     }
-                    "title" -> title = parser.nextText()
-                    "desc" -> desc = parser.nextText()
+                    "title" -> title = parser.nextText().trim()
+                    "desc" -> desc = parser.nextText().trim()
                 }
-                XmlPullParser.END_TAG -> if (parser.name == "programme") {
-                    val startUtc = start
-                    val endUtc = end
-                    if (channel.isNotBlank() && title.isNotBlank() && startUtc != null &&
-                        endUtc != null && endUtc > startUtc
-                    ) {
-                        output += ProgrammeEntity(
-                            id = "$channel-$startUtc-$endUtc",
-                            channelId = channel,
-                            title = title,
-                            description = desc,
-                            startUtc = startUtc,
-                            endUtc = endUtc
-                        )
+                XmlPullParser.END_TAG -> when (parser.name) {
+                    "channel" -> if (channelId.isNotBlank()) channels += EpgChannelEntity(
+                        id = "$sourceId|$channelId", sourceId = sourceId, xmltvId = channelId,
+                        displayName = channelName, iconUrl = channelIcon
+                    )
+                    "programme" -> {
+                        val a = start; val b = end
+                        if (programmeChannel.isNotBlank() && title.isNotBlank() && a != null && b != null && b > a) {
+                            programmes += ProgrammeEntity(
+                                id = "$sourceId|$programmeChannel|$a|$b", channelId = programmeChannel,
+                                title = title, description = desc, startUtc = a, endUtc = b
+                            )
+                        }
                     }
                 }
             }
             event = parser.next()
         }
-        return output
+        return XmlTvDocument(channels.distinctBy { it.id }, programmes.distinctBy { it.id })
     }
 
-    /** Parses XMLTV timestamps strictly. Offset-less timestamps are interpreted as UTC. */
     private fun parseDate(value: String): Long? {
         val input = value.trim()
         val hasOffset = Regex("""^\d{14} [+-]\d{4}$""").matches(input)
-        val isUtcWithoutOffset = Regex("""^\d{14}$""").matches(input)
-        if (!hasOffset && !isUtcWithoutOffset) return null
-
-        val pattern = if (hasOffset) "yyyyMMddHHmmss Z" else "yyyyMMddHHmmss"
-        val format = SimpleDateFormat(pattern, Locale.US).apply {
-            isLenient = false
-            timeZone = TimeZone.getTimeZone("UTC")
+        val utc = Regex("""^\d{14}$""").matches(input)
+        if (!hasOffset && !utc) return null
+        val fmt = SimpleDateFormat(if (hasOffset) "yyyyMMddHHmmss Z" else "yyyyMMddHHmmss", Locale.US).apply {
+            isLenient = false; timeZone = TimeZone.getTimeZone("UTC")
         }
-        val position = ParsePosition(0)
-        val parsed = format.parse(input, position) ?: return null
-        return parsed.time.takeIf { position.index == input.length && position.errorIndex < 0 }
+        val pos = ParsePosition(0)
+        val date = fmt.parse(input, pos) ?: return null
+        return date.time.takeIf { pos.index == input.length && pos.errorIndex < 0 }
     }
 }

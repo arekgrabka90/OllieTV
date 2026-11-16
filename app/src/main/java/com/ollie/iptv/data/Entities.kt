@@ -90,3 +90,46 @@ data class ChannelLockEntity(
     @PrimaryKey val streamId: String,
     val lockedAt: Long = System.currentTimeMillis()
 )
+
+
+@Entity(tableName = "epg_sources", indices = [Index("playlistId"), Index("enabled")])
+data class EpgSourceEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @androidx.room.ColumnInfo(defaultValue = "0") val playlistId: Long = 0,
+    val name: String,
+    val url: String,
+    @androidx.room.ColumnInfo(defaultValue = "1") val enabled: Boolean = true,
+    @androidx.room.ColumnInfo(defaultValue = "'NEVER'") val status: String = "NEVER",
+    @androidx.room.ColumnInfo(defaultValue = "0") val lastUpdatedAt: Long = 0,
+    @androidx.room.ColumnInfo(defaultValue = "''") val lastError: String = ""
+)
+
+@Entity(tableName = "epg_channels", indices = [Index("sourceId"), Index("xmltvId")])
+data class EpgChannelEntity(
+    @PrimaryKey val id: String,
+    val sourceId: Long,
+    val xmltvId: String,
+    val displayName: String = "",
+    val iconUrl: String = ""
+)
+
+@Entity(tableName = "channel_mappings", indices = [Index("xmltvChannelId")])
+data class ChannelMappingEntity(
+    @PrimaryKey val streamId: String,
+    val xmltvChannelId: String,
+    val matchType: String = "MANUAL",
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "programme_reminders", indices = [Index("streamId"), Index("programmeStartUtc")])
+data class ProgrammeReminderEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val streamId: String,
+    val programmeId: String,
+    val programmeTitle: String,
+    val programmeStartUtc: Long,
+    val minutesBefore: Int,
+    val workName: String,
+    val status: String = "SCHEDULED",
+    val createdAt: Long = System.currentTimeMillis()
+)

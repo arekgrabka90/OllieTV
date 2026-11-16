@@ -4,6 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.ExistingWorkPolicy
+import androidx.work.workDataOf
+import com.ollie.iptv.data.ProgrammeReminderWorker
+import java.util.concurrent.TimeUnit
 import com.ollie.iptv.data.*
 import androidx.media3.exoplayer.ExoPlayer
 import com.ollie.iptv.player.engine.PlaybackEngine
@@ -66,6 +71,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _player = MutableStateFlow<ExoPlayer?>(null)
     val player: StateFlow<ExoPlayer?> = _player.asStateFlow()
     val playlists = dao.playlists()
+    val epgSources = dao.epgSources()
+    val epgChannels = dao.epgChannels()
+    val channelMappings = dao.channelMappings()
+    val scheduledProgrammeReminders = dao.scheduledProgrammeReminders()
     val scheduledRecordings = dao.scheduledRecordings()
     val allStreams = dao.allStreams()
     val live = dao.streams("LIVE")
@@ -206,6 +215,46 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val count = repository.importEpg(url)
         "Imported $count EPG programmes."
     }
+    fun addEpgSource(name: String, url: String) = runTask {
+        val normalizedUrl = url.trim()
+        val id = repository.addEpgSource(name, normalizedUrl)
+        val count = repository.importEpg(normalizedUrl)
+        "Added EPG source #$id; imported $count programmes."
+    }
+    fun setEpgSourceEnabled(source: EpgSourceEntity, enabled: Boolean) = viewModelScope.launch {
+        repository.setEpgSourceEnabled(source.id, enabled)
+    }
+    fun deleteEpgSource(id: Long) = viewModelScope.launch { repository.deleteEpgSource(id) }
+    fun refreshEpgSource(source: EpgSourceEntity) = runTask {
+        val count = repository.importEpg(source.url)
+        "Refreshed ${source.name}: $count programmes."
+    }
+    fun saveManualEpgMapping(streamId: String, xmltvId: String) = runTask {
+        repository.saveManualEpgMapping(streamId, xmltvId)
+        "Manual EPG mapping saved."
+    }
+    fun scheduleProgrammeReminder(stream: StreamEntity, programme: ProgrammeEntity, minutes: Int) = viewModelScope.launch {
+        val allowed = listOf(5, 10, 15)
+        if (minutes !in allowed) { _message.value = "Reminder must be 5, 10 or 15 minutes."; return@launch }
+        val triggerAt = programme.startUtc - minutes * 60_000L
+        if (triggerAt <= System.currentTimeMillis()) { _message.value = "This programme starts too soon for that reminder."; return@launch }
+        val workName = "ollie_programme_reminder_${stream.id}_${programme.id}_$minutes"
+        dao.replaceScheduledReminder(workName)
+        val id = dao.insertProgrammeReminder(ProgrammeReminderEntity(
+            streamId = stream.id, programmeId = programme.id, programmeTitle = programme.title,
+            programmeStartUtc = programme.startUtc, minutesBefore = minutes, workName = workName
+        ))
+        val request = OneTimeWorkRequestBuilder<ProgrammeReminderWorker>()
+            .setInitialDelay(triggerAt - System.currentTimeMillis(), TimeUnit.MILLISECONDS)
+            .setInputData(workDataOf(ProgrammeReminderWorker.KEY_REMINDER_ID to id))
+            .addTag(workName).build()
+        WorkManager.getInstance(getApplication()).enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, request)
+        _message.value = "Reminder scheduled for ${programme.title}. Android battery restrictions may delay background delivery."
+    }
+    fun cancelProgrammeReminder(reminder: ProgrammeReminderEntity) = viewModelScope.launch {
+        WorkManager.getInstance(getApplication()).cancelUniqueWork(reminder.workName)
+        dao.updateProgrammeReminderStatus(reminder.id, "CANCELLED")
+    }
     fun refreshPlaylist(id: Long) = runTask {
         val count = repository.refreshPlaylist(id)
         "Refreshed playlist: $count entries."
@@ -240,18 +289,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         dao.deleteRecording(id)
     }
     fun loadGuideDay(offset: Int) = viewModelScope.launch {
-        _guideDayOffset.value = offset
-        val calendar = java.util.Calendar.getInstance()
-        calendar.add(java.util.Calendar.DAY_OF_YEAR, offset)
-        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        calendar.set(java.util.Calendar.MINUTE, 0)
-        calendar.set(java.util.Calendar.SECOND, 0)
-        calendar.set(java.util.Calendar.MILLISECOND, 0)
-        val start = calendar.timeInMillis
-        val nextDay = (calendar.clone() as java.util.Calendar).apply {
-            add(java.util.Calendar.DAY_OF_YEAR, 1)
-        }.timeInMillis
+        val safeOffset = offset.coerceIn(0, 6)
+        _guideDayOffset.value = safeOffset
+        val (start, nextDay) = EpgMatching.localDayRange(safeOffset, java.util.TimeZone.getDefault().id)
         _guideProgrammes.value = dao.programmesForRange(start, nextDay)
+            .distinctBy { "${it.channelId}|${it.startUtc}|${it.endUtc}|${it.title}" }
     }
     fun toggleFavorite(item: StreamEntity) = viewModelScope.launch {
         if (item.isFavorite) dao.removeStreamFromFavoriteGroups(item.id)
@@ -282,8 +324,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             dao.trimChannelHistory(20)
         }
         viewModelScope.launch {
-            _programmes.value = if (item.tvgId.isNotBlank()) {
-                dao.programmes(item.tvgId, System.currentTimeMillis()).first()
+            val mappedId = dao.channelMapping(item.id)?.xmltvChannelId ?: item.tvgId
+            _programmes.value = if (mappedId.isNotBlank()) {
+                dao.programmes(mappedId, System.currentTimeMillis()).first()
+                    .distinctBy { "${it.startUtc}|${it.endUtc}|${it.title}" }
             } else emptyList()
         }
     }
