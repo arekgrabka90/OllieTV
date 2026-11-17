@@ -1,17 +1,17 @@
 package com.ollie.iptv.ui.theme
-
 import androidx.compose.ui.graphics.Color
-
-// Shared palette aligned with the OlliePlayer glass HUD.
-val Ink = Color(0xFF080D14)
-val Panel = Color(0xC910151D)
-val Muted = Color(0xFFB6C0CB)
-val OllieAccent = Color(0xFFB8D8FF)
-val OllieAccentInk = Color(0xFF0A111A)
-val OllieGlass = Color(0xC910151D)
-val OllieGlassStrong = Color(0xE610151D)
-val OllieGlassLine = Color.White.copy(alpha = 0.13f)
-val OllieTextPrimary = Color(0xFFF7F9FC)
-val OllieTextSecondary = Color(0xFFB6C0CB)
-val OllieLiveRed = Color(0xFFFF5D68)
-val OllieFocus = Color(0xFFB8D8FF)
+// OLLIE TV Landscape Cinema palette
+val Ink = Color(0xFF12111D)
+val Panel = Color(0xFF211E2D)
+val Muted = Color(0xFFA5A1B2)
+val OllieAccent = Color(0xFFFF8A32)
+val OllieAccentInk = Color(0xFF1B1420)
+val OllieGlass = Color(0xE61C1A2A)
+val OllieGlassStrong = Color(0xF0211E2D)
+val OllieGlassLine = Color(0xFF393343)
+val OllieTextPrimary = Color(0xFFF5F3FA)
+val OllieTextSecondary = Color(0xFFA5A1B2)
+val OllieLiveRed = Color(0xFFF04452)
+val OllieFocus = Color(0xFFFFA04D)
+val OllieCard = Color(0xFF292638)
+val OllieCardSelected = Color(0xFF393448)

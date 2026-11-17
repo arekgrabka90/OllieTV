@@ -43,12 +43,12 @@ import com.ollie.iptv.data.ProgrammeEntity
 import com.ollie.iptv.data.StreamEntity
 import com.ollie.iptv.ui.theme.Muted
 
-private val Glass = Color(0xC910151D)
-private val GlassStrong = Color(0xE610151D)
-private val GlassLine = Color.White.copy(alpha = 0.13f)
-private val TextSecondary = Color(0xFFB6C0CB)
-private val Accent = Color(0xFFB8D8FF)
-private val LiveRed = Color(0xFFFF5D68)
+private val Glass = Color(0xE61C1A2A)
+private val GlassStrong = Color(0xF0211E2D)
+private val GlassLine = Color(0xFF393343)
+private val TextSecondary = Color(0xFFA5A1B2)
+private val Accent = Color(0xFFFF8A32)
+private val LiveRed = Color(0xFFF04452)
 
 @Composable
 fun OlliePlayer(

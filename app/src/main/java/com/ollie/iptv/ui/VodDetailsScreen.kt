@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import coil.compose.AsyncImage
 import com.ollie.iptv.data.StreamEntity
 import com.ollie.iptv.data.VodDetails
@@ -22,7 +23,7 @@ import com.ollie.iptv.ui.theme.Panel
 @Composable
 fun VodDetailsScreen(stream:StreamEntity,details:VodDetails?,loading:Boolean,error:String?,compactRows:Boolean,onBack:()->Unit,onPlay:()->Unit,onPlayEpisode:(StreamEntity)->Unit) {
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){IconButton(onClick=onBack){Icon(Icons.Default.ArrowBack,"Back")};Text("Title details",style=MaterialTheme.typography.titleLarge)}
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){IconButton(onClick=onBack){Icon(Icons.Default.ArrowBack,"Back")};Text("Title details",style=MaterialTheme.typography.titleLarge,color=Color.White)}
         when {
             loading->Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){CircularProgressIndicator()}
             details==null->Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){

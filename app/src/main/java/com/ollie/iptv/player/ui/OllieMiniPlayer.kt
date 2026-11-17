@@ -45,7 +45,7 @@ fun OllieMiniPlayer(
     Surface(
         onClick = onExpand,
         modifier = Modifier.fillMaxWidth().padding(top = if (compact) 6.dp else 10.dp),
-        color = Color(0xE610151D),
+        color = Color(0xF0211E2D),
         shape = RoundedCornerShape(if (compact) 16.dp else 24.dp),
         border = BorderStroke(1.dp, Color.White.copy(alpha = .15f)),
         shadowElevation = if (compact) 8.dp else 18.dp
@@ -57,10 +57,10 @@ fun OllieMiniPlayer(
         ) {
             if (compact) {
                 Box(
-                    Modifier.size(38.dp).background(Color(0xFF26394B), RoundedCornerShape(10.dp)),
+                    Modifier.size(38.dp).background(Color(0xFF49301F), RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Tv, null, tint = Color(0xFFB8D8FF))
+                    Icon(Icons.Default.Tv, null, tint = Color(0xFFFF8A32))
                 }
             } else {
                 AndroidView(
@@ -79,7 +79,7 @@ fun OllieMiniPlayer(
             }
 
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text("NOW PLAYING", color = Color(0xFFB8D8FF), fontSize = 8.sp, letterSpacing = 1.1.sp, maxLines = 1)
+                Text("NOW PLAYING", color = Color(0xFFFF8A32), fontSize = 8.sp, letterSpacing = 1.1.sp, maxLines = 1)
                 Text(stream.name, color = Color.White, fontSize = if (compact) 11.sp else 12.sp, maxLines = 1)
                 if (!compact) Text(stream.category, color = Muted, fontSize = 10.sp, maxLines = 1)
             }
@@ -94,7 +94,7 @@ fun OllieMiniPlayer(
                 Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) "Pause" else "Play", tint = Color.White)
             }
             IconButton(onClick = onExpand, modifier = Modifier.size(if (compact) 38.dp else 48.dp)) {
-                Icon(Icons.Default.Fullscreen, "Full screen", tint = Color(0xFFB8D8FF))
+                Icon(Icons.Default.Fullscreen, "Full screen", tint = Color(0xFFFF8A32))
             }
             IconButton(onClick = onClose, modifier = Modifier.size(if (compact) 38.dp else 48.dp)) {
                 Icon(Icons.Default.Close, "Stop", tint = Muted)

@@ -13,8 +13,8 @@ import com.ollie.iptv.ui.theme.OllieGlassPanel
 
 @Composable
 fun SettingsScreen(settings:OllieSettings,onShowLogos:(Boolean)->Unit,onShowCategory:(Boolean)->Unit,onShowRecent:(Boolean)->Unit,onCompactRows:(Boolean)->Unit,onHudTimeout:(Int)->Unit,onAddPlaylist:()->Unit,playlistContent:@Composable ()->Unit,epgContent:@Composable ()->Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-        Text("Personalise your Ollie TV experience",color=Muted)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(13.dp)) {
+        Text("Personalise your Ollie TV experience",color=Muted,style=MaterialTheme.typography.titleMedium)
         Section("Sources & playlists","Manage IPTV connections in one place") {
             Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 Text("Add M3U playlists, local files or Xtream Codes accounts. Edit, refresh, reorder and disable existing sources below.",color=Muted,style=MaterialTheme.typography.bodySmall)

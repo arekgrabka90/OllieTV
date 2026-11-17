@@ -553,12 +553,26 @@ fun TVHubScreen(
                     }
                 }
             } else if (expandedLayout) {
-                Row(
-                    Modifier.weight(1f).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Row(Modifier.weight(1f).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.weight(.22f).fillMaxHeight()) {
+                        Text("BROWSE",color=Muted,fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=1.3.sp)
+                        Spacer(Modifier.height(7.dp))
+                        LazyColumn(verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                            item {
+                                Surface(onClick={selectCategory("All channels")},color=if(selectedCategory=="All channels") Color(0xFF393448) else Color.Transparent,shape=RoundedCornerShape(10.dp),border=if(selectedCategory=="All channels") BorderStroke(1.dp,Color(0xFFFF8A32).copy(alpha=.5f)) else null) {
+                                    Row(Modifier.fillMaxWidth().padding(9.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Default.Tv,null,tint=if(selectedCategory=="All channels") Color(0xFFFF8A32) else Muted);Spacer(Modifier.width(7.dp));Text("All channels",color=Color.White,fontSize=11.sp)}
+                                }
+                            }
+                            items(categoryOptions,key={it.key}) { option ->
+                                Surface(onClick={selectCategory(option.key)},color=if(selectedCategory==option.key) Color(0xFF393448) else Color.Transparent,shape=RoundedCornerShape(10.dp),border=if(selectedCategory==option.key) BorderStroke(1.dp,Color(0xFFFF8A32).copy(alpha=.5f)) else null) {
+                                    Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=9.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Default.Folder,null,tint=if(selectedCategory==option.key) Color(0xFFFF8A32) else Muted,modifier=Modifier.size(15.dp));Spacer(Modifier.width(6.dp));Column(Modifier.weight(1f)){Text(option.name,color=Color.White,fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${option.count} channels",color=Muted,fontSize=9.sp)}}
+                                }
+                            }
+                        }
+                    }
+                    VerticalDivider(color=Color(0xFF393343))
                     LazyColumn(
-                        Modifier.weight(.58f).fillMaxHeight(),
+                        Modifier.weight(.43f).fillMaxHeight(),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         contentPadding = PaddingValues(bottom = 12.dp)
                     ) {

@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -62,6 +63,7 @@ import com.ollie.iptv.navigation.OllieNavigationItem
 import com.ollie.iptv.player.ui.OlliePlayer
 import com.ollie.iptv.player.ui.OllieMiniPlayer
 import com.ollie.iptv.ui.home.TVHubScreen
+import com.ollie.iptv.ui.home.LandscapeHomeDashboard
 import com.ollie.iptv.ui.adaptive.OllieWindowClass
 import com.ollie.iptv.ui.adaptive.ollieWindowClassForWidth
 import com.ollie.iptv.ui.adaptive.ollieUsesTwoPaneLiveLayout
@@ -134,11 +136,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
     val busy by vm.busy.collectAsState()
     var tab by rememberSaveable { mutableStateOf(ScreenTab.HUB) }
     var moreMenuExpanded by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(tab) {
-        if (tab == ScreenTab.LIVE || tab == ScreenTab.GUIDE) {
-            tab = ScreenTab.HUB
-        }
-    }
+    LaunchedEffect(tab) { if (tab == ScreenTab.GUIDE) tab = ScreenTab.LIVE }
     var playerFullscreen by rememberSaveable { mutableStateOf(false) }
     var dialog by rememberSaveable { mutableStateOf("") }
     var search by rememberSaveable { mutableStateOf("") }
@@ -211,9 +209,12 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
     }
 
     MaterialTheme(colorScheme = darkColorScheme(
-        primary = Color(0xFFE9EDF2), background = Ink, surface = Panel,
-        onBackground = Color(0xFFF4F6F8), onSurface = Color(0xFFF4F6F8),
-        secondary = Color(0xFFB6C0CA)
+            primary = Color(0xFFFF8A32), onPrimary = Color(0xFF1B1420),
+            primaryContainer = Color(0xFF49301F), onPrimaryContainer = Color(0xFFF5F3FA),
+            background = Ink, surface = Panel, surfaceVariant = Color(0xFF292638),
+            onBackground = Color(0xFFF5F3FA), onSurface = Color(0xFFF5F3FA),
+            onSurfaceVariant = Color(0xFFA5A1B2), secondary = Color(0xFFBEB6CC),
+            outline = Color(0xFF393343), error = Color(0xFFF04452)
     )) {
         Surface(Modifier.fillMaxSize(), color = Ink) {
             if (selected != null && player != null && (playerFullscreen || selected!!.kind != "LIVE")) {
@@ -289,33 +290,21 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
             } else {
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     val availableWidth = maxWidth
-                    val windowClass = ollieWindowClassForWidth(availableWidth.value.toInt())
-                    val compact = windowClass == OllieWindowClass.COMPACT
-                    val medium = windowClass == OllieWindowClass.MEDIUM
-                    val reservedWidth = if (compact) 28.dp else if (medium) 154.dp else 298.dp
-                    val contentWidthDp = (availableWidth - reservedWidth).value.toInt().coerceAtLeast(0)
-                    val useTwoPaneLiveLayout = !compact && ollieUsesTwoPaneLiveLayout(contentWidthDp)
-                    Row(Modifier.fillMaxSize().padding(if (compact) 14.dp else 26.dp)) {
-                        if (!compact) {
-                            Column(Modifier.width(if (medium) 76.dp else 220.dp).fillMaxHeight()) {
-                                if (!medium) {
-                                    Text("OLLIE", fontSize = 30.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                                    Text("TELEVISION", color = Muted, fontSize = 10.sp, letterSpacing = 3.sp)
-                                    Spacer(Modifier.height(28.dp))
-                                } else {
-                                    Spacer(Modifier.height(8.dp))
-                                }
-                                ScreenTab.values().filterNot { it == ScreenTab.LIVE || it == ScreenTab.GUIDE }.forEach { item ->
-                                    OllieNavigationItem(item, tab == item, compact = medium) { tab = item }
-                                }
-                                Spacer(Modifier.weight(1f))
-                                if (!medium) Text("OLLIE TV  •  0.4.1", color = Muted, fontSize = 10.sp)
+                    val compact = availableWidth < 680.dp
+                    val contentWidthDp = (availableWidth - 224.dp).value.toInt().coerceAtLeast(0)
+                    val useTwoPaneLiveLayout = ollieUsesTwoPaneLiveLayout(contentWidthDp)
+                    Row(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp)) {
+                        Column(Modifier.width(194.dp).fillMaxHeight()) {
+                            Text("OLLIE", fontSize = 29.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp, color = Color.White)
+                            Text("TELEVISION", color = Muted, fontSize = 9.sp, letterSpacing = 3.sp)
+                            Spacer(Modifier.height(22.dp))
+                            ScreenTab.values().filterNot { it == ScreenTab.GUIDE }.forEach { item ->
+                                OllieNavigationItem(item, tab == item, compact = false) { tab = item }
                             }
+                            Spacer(Modifier.weight(1f))
+                            Text("OLLIE TV  •  0.5.0", color = Muted, fontSize = 10.sp)
                         }
-                        Column(Modifier.fillMaxSize().padding(
-                            start = if (compact) 0.dp else 26.dp,
-                            bottom = if (compact) 78.dp else 0.dp
-                        )) {
+                        Column(Modifier.fillMaxSize().padding(start = 20.dp)) {
                         if (tab != ScreenTab.HUB) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -354,7 +343,12 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                         Spacer(Modifier.height(12.dp))
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                         when (tab) {
-                            ScreenTab.HUB -> TVHubScreen(
+                            ScreenTab.HUB -> LandscapeHomeDashboard(
+                                channelCount = live.size, playlistCount = playlists.size, movieCount = movies.size,
+                                seriesCount = series.size, favoriteCount = favorites.size, recordingCount = recordings.size,
+                                recentChannels = recentChannels, onNavigate = { tab = it }, onPlayChannel = handleChannelClick
+                            )
+                            ScreenTab.LIVE -> TVHubScreen(
                                 channels = filteredLive,
                                 allChannels = live,
                                 recentChannels = recentChannels,
@@ -401,10 +395,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                     )
                                 }
                             )
-                            ScreenTab.LIVE, ScreenTab.GUIDE -> EmptyState(
-                                "Live TV is part of Live Hub",
-                                "Open Live Hub to browse channels and the programme guide."
-                            )
+                            ScreenTab.GUIDE -> { tab = ScreenTab.LIVE }
                             ScreenTab.MOVIES -> StreamList(movies.filter { it.name.contains(search,true) },vm::requestPlay,vm::toggleFavorite,
                                 onDetails={detailTargetId=it.id;vm.loadVodDetails(it)},showLogos=settings.showChannelLogos,compactRows=settings.compactRows)
                             ScreenTab.SERIES -> {
@@ -539,65 +530,6 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
                     }
-                    if (compact) {
-                        Row(
-                            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                                .background(Panel)
-                                .padding(horizontal = 4.dp, vertical = 5.dp),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            listOf(
-                                ScreenTab.HUB,
-                                ScreenTab.MOVIES,
-                                ScreenTab.SERIES,
-                                ScreenTab.FAVORITES
-                            ).forEach { item ->
-                                OllieNavigationItem(item, tab == item, bottom = true) { tab = item }
-                            }
-                            Box(Modifier.width(62.dp)) {
-                                Surface(
-                                    onClick = { moreMenuExpanded = true },
-                                    color = if (tab == ScreenTab.RECORDINGS || tab == ScreenTab.SETTINGS)
-                                        Color(0xD9212F3D) else Color.Transparent,
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        Modifier.padding(horizontal = 3.dp, vertical = 5.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(
-                                            Icons.Default.MoreHoriz, null,
-                                            tint = if (tab == ScreenTab.RECORDINGS || tab == ScreenTab.SETTINGS) Color.White else Muted
-                                        )
-                                        Text(
-                                            "More",
-                                            color = if (tab == ScreenTab.RECORDINGS || tab == ScreenTab.SETTINGS) Color.White else Muted,
-                                            fontSize = 9.sp,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                                DropdownMenu(
-                                    expanded = moreMenuExpanded,
-                                    onDismissRequest = { moreMenuExpanded = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Recordings") },
-                                        leadingIcon = { Icon(Icons.Default.VideoFile, null) },
-                                        onClick = { moreMenuExpanded = false; tab = ScreenTab.RECORDINGS }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Settings") },
-                                        leadingIcon = { Icon(Icons.Default.Settings, null) },
-                                        onClick = { moreMenuExpanded = false; tab = ScreenTab.SETTINGS }
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -701,60 +633,36 @@ private fun StreamList(
     compactRows: Boolean = false
 ) {
     if (items.isEmpty()) { EmptyState("Nothing here yet", "Add an M3U playlist or Xtream account."); return }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+        columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(154.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 18.dp, end = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
+        verticalArrangement = Arrangement.spacedBy(13.dp)
+    ) {
         items(items, key = { it.id }) { stream ->
-            Surface(onClick={if(onDetails!=null)onDetails(stream) else onPlay(stream)},color=Panel,shape=RoundedCornerShape(10.dp),modifier=Modifier.fillMaxWidth()){
-                Row(Modifier.padding(horizontal=14.dp,vertical=if(compactRows)7.dp else 11.dp),verticalAlignment=Alignment.CenterVertically){
-                    Box(Modifier.size(if(compactRows)36.dp else 42.dp).background(Color(0xFF252D36),RoundedCornerShape(8.dp)),contentAlignment=Alignment.Center){
-                        if(showLogos&&stream.logo.isNotBlank())AsyncImage(model=stream.logo,contentDescription="${stream.name} artwork",contentScale=ContentScale.Crop,modifier=Modifier.fillMaxSize())
-                        else Icon(if(stream.kind=="MOVIE")Icons.Default.Movie else Icons.Default.Tv,null,tint=Color.LightGray)
-                    }
-                    Spacer(Modifier.width(13.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(stream.name, fontWeight = FontWeight.SemiBold)
-                        Text(stream.category, color = Muted, fontSize = 12.sp)
-                    }
-                    IconButton(onClick = { onFavorite(stream) }) {
-                        Icon(if (stream.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
-                            "Favorite", tint = if (stream.isFavorite) Color(0xFFFFD166) else Muted)
-                    }
-                    if (onRemoveFromGroup != null) {
-                        IconButton(onClick = { onRemoveFromGroup(stream) }) {
-                            Icon(Icons.Default.RemoveCircleOutline, "Remove from group", tint = Muted)
+            Surface(onClick = { if (onDetails != null) onDetails(stream) else onPlay(stream) }, color = Color(0xFF292638), shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, Color(0xFF393343)), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(8.dp)) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(.72f).background(Color(0xFF211E2D), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                        if (showLogos && stream.logo.isNotBlank()) AsyncImage(model = stream.logo, contentDescription = "${stream.name} artwork", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        else Icon(if (stream.kind == "SERIES") Icons.Default.VideoLibrary else Icons.Default.Movie, null, tint = Color(0xFFFF8A32), modifier = Modifier.size(38.dp))
+                        Surface(color = Color(0xCC12111D), shape = RoundedCornerShape(9.dp), modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)) {
+                            IconButton(onClick = { onFavorite(stream) }, modifier = Modifier.size(34.dp)) { Icon(if (stream.isFavorite) Icons.Default.Star else Icons.Default.StarBorder, "Favorite", tint = if (stream.isFavorite) Color(0xFFFF8A32) else Color.White) }
                         }
                     }
-                    Icon(Icons.Default.PlayArrow, null, tint = Muted)
+                    Spacer(Modifier.height(8.dp))
+                    Text(stream.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(stream.category, color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (onRemoveFromGroup != null) TextButton(onClick = { onRemoveFromGroup(stream) }, contentPadding = PaddingValues(0.dp)) { Text("Remove from group", color = Color(0xFFFF8A32), fontSize = 10.sp) }
                 }
             }
         }
     }
 }
 
-
 @Composable
-private fun SeriesList(items:List<StreamEntity>,onSelect:(StreamEntity)->Unit,onFavorite:(StreamEntity)->Unit,showLogos:Boolean=true,compactRows:Boolean=false) {
-    if (items.isEmpty()) { EmptyState("No series", "Import an Xtream Codes source."); return }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        items(items, key = { it.id }) { item ->
-            Surface(onClick = { onSelect(item) }, color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(if(compactRows)9.dp else 14.dp),verticalAlignment=Alignment.CenterVertically){
-                    Box(Modifier.size(if(compactRows)36.dp else 48.dp).background(Color(0xFF252D36),RoundedCornerShape(8.dp)),contentAlignment=Alignment.Center){
-                        if(showLogos&&item.logo.isNotBlank())AsyncImage(model=item.logo,contentDescription="${item.name} poster",contentScale=ContentScale.Crop,modifier=Modifier.fillMaxSize())
-                        else Icon(Icons.Default.VideoLibrary,null,tint=Color.LightGray)
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(item.name, fontWeight = FontWeight.SemiBold)
-                        Text(item.category, color = Muted, fontSize = 12.sp)
-                    }
-                    IconButton(onClick = { onFavorite(item) }) {
-                        Icon(if (item.isFavorite) Icons.Default.Star else Icons.Default.StarBorder, "Favorite")
-                    }
-                    Icon(Icons.Default.ChevronRight, null, tint = Muted)
-                }
-            }
-        }
-    }
+private fun SeriesList(items: List<StreamEntity>, onSelect: (StreamEntity) -> Unit, onFavorite: (StreamEntity) -> Unit, showLogos: Boolean = true, compactRows: Boolean = false) {
+    StreamList(items = items, onPlay = onSelect, onFavorite = onFavorite, showLogos = showLogos, compactRows = compactRows)
 }
 
 @Composable
