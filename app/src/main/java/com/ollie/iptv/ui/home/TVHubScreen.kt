@@ -587,7 +587,7 @@ fun TVHubScreen(
                                 locked = channel.id in lockedChannelIds,
                                 showLogos = showLogos,
                                 showCategory = showCategory,
-                                compactRows = compactRows || compactLayout
+                                compactRows = compactRows || compactLayout,
                                 programmes = programmesFor(channel),
                                 onClick = { onChannelClick(channel) },
                                 onFavorite = { onFavorite(channel) },
@@ -627,7 +627,7 @@ fun TVHubScreen(
                             locked = channel.id in lockedChannelIds,
                             showLogos = showLogos,
                             showCategory = showCategory,
-                            compactRows = compactRows || compactLayout
+                            compactRows = compactRows || compactLayout,
                             programmes = programmesFor(channel),
                             onClick = { onChannelClick(channel) },
                             onFavorite = { onFavorite(channel) },
