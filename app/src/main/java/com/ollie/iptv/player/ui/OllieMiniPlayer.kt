@@ -24,7 +24,7 @@ fun OllieMiniPlayer(player:ExoPlayer,stream:StreamEntity,onExpand:()->Unit,onClo
     val view=remember(player){mutableStateOf<PlayerView?>(null)}
     LaunchedEffect(player){while(true){playing=player.isPlaying;delay(450)}}
     DisposableEffect(player){onDispose{view.value?.player=null}}
-    Surface(onClick=onExpand,modifier=Modifier.fillMaxWidth().padding(top=10.dp),color=Color(0xE9161D26),shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,Color.White.copy(alpha=.13f)),shadowElevation=14.dp){
+    Surface(onClick=onExpand,modifier=Modifier.fillMaxWidth().padding(top=10.dp),color=Color(0xE610151D),shape=RoundedCornerShape(24.dp),border=BorderStroke(1.dp,Color.White.copy(alpha=.15f)),shadowElevation=18.dp){
         Row(Modifier.fillMaxWidth().padding(9.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
             AndroidView(factory={ctx->PlayerView(ctx).apply{useController=false;this.player=player;resizeMode=androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT;setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);view.value=this}},update={it.player=player;view.value=it},modifier=Modifier.width(110.dp).height(64.dp))
             Column(Modifier.weight(1f)){Text("NOW PLAYING",color=Color(0xFFB8D8FF),fontSize=8.sp,letterSpacing=1.2.sp);Text(stream.name,color=Color.White,fontSize=12.sp,maxLines=1);Text(stream.category,color=Muted,fontSize=10.sp,maxLines=1)}

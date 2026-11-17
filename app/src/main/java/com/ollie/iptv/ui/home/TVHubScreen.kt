@@ -31,7 +31,7 @@ fun TVHubScreen(channels:List<StreamEntity>,recentChannels:List<StreamEntity>,fa
     }
     LazyColumn(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(16.dp),contentPadding=PaddingValues(bottom=14.dp)) {
         item {
-            Row(Modifier.fillMaxWidth().heightIn(min=145.dp).background(Brush.linearGradient(listOf(Color(0xFF24384A),Color(0xFF111923),Color(0xFF101317))),RoundedCornerShape(24.dp)).padding(20.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min=145.dp).background(Brush.linearGradient(listOf(Color(0xFF24384A),Color(0xFF111923),Color(0xFF101317))),RoundedCornerShape(28.dp)).padding(22.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)) {
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(7.dp)) {
                     Text("OLLIE  /  TELEVISION",color=Color(0xFFB8D8FF),fontSize=9.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp)
                     Text(selectedChannel?.name?:"Your television, beautifully organised",color=Color.White,fontSize=22.sp,fontWeight=FontWeight.Bold,maxLines=2,overflow=TextOverflow.Ellipsis)
@@ -53,7 +53,7 @@ fun TVHubScreen(channels:List<StreamEntity>,recentChannels:List<StreamEntity>,fa
         }
         if(channels.isEmpty()) item{Text("No channels available. Add or enable a playlist in Settings.",Modifier.padding(24.dp),color=Muted)}
         else items(channels,key={it.id}){ch->
-            Surface(onClick={onChannelClick(ch)},color=if(selectedChannel?.id==ch.id)Color(0xFF26394B)else Panel,shape=RoundedCornerShape(15.dp),border=BorderStroke(1.dp,if(selectedChannel?.id==ch.id)Color(0xFFB8D8FF).copy(alpha=.35f)else Color.White.copy(alpha=.04f)),modifier=Modifier.fillMaxWidth()){
+            Surface(onClick={onChannelClick(ch)},color=if(selectedChannel?.id==ch.id)Color(0xFF26394B)else Panel,shape=RoundedCornerShape(19.dp),border=BorderStroke(1.dp,if(selectedChannel?.id==ch.id)Color(0xFFB8D8FF).copy(alpha=.42f)else Color.White.copy(alpha=.08f)),modifier=Modifier.fillMaxWidth()){
                 Row(Modifier.padding(13.dp),verticalAlignment=Alignment.CenterVertically){
                     Box(Modifier.size(43.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF252D36)),contentAlignment=Alignment.Center){if(ch.logo.isNotBlank())AsyncImage(ch.logo,ch.name,contentScale=ContentScale.Fit,modifier=Modifier.fillMaxSize().padding(5.dp))else Icon(Icons.Default.Tv,null,tint=Muted)}
                     Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text(ch.name,color=Color.White,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis);Text(ch.category,color=Muted,fontSize=11.sp,maxLines=1)}
@@ -65,7 +65,7 @@ fun TVHubScreen(channels:List<StreamEntity>,recentChannels:List<StreamEntity>,fa
 }
 @Composable private fun Rail(title:String,channels:List<StreamEntity>,selected:String?,click:(StreamEntity)->Unit){
     Column(verticalArrangement=Arrangement.spacedBy(9.dp)){Text(title,color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold);LazyRow(horizontalArrangement=Arrangement.spacedBy(9.dp)){items(channels,key={it.id}){ch->
-        Surface(onClick={click(ch)},color=if(selected==ch.id)Color(0xFF26394B)else Panel,shape=RoundedCornerShape(13.dp),modifier=Modifier.width(164.dp)){
+        Surface(onClick={click(ch)},color=if(selected==ch.id)Color(0xFF26394B)else Panel,shape=RoundedCornerShape(17.dp),border=BorderStroke(1.dp,Color.White.copy(alpha=.07f)),modifier=Modifier.width(164.dp)){
             Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(34.dp).background(Color(0xFF252D36),RoundedCornerShape(8.dp)),contentAlignment=Alignment.Center){if(ch.logo.isNotBlank())AsyncImage(ch.logo,null,contentScale=ContentScale.Fit,modifier=Modifier.fillMaxSize().padding(4.dp))else Icon(Icons.Default.Tv,null,tint=Muted)};Spacer(Modifier.width(8.dp));Text(ch.name,color=Color.White,fontSize=11.sp,maxLines=2,overflow=TextOverflow.Ellipsis)}
         }
     }}}

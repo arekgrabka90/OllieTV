@@ -9,10 +9,11 @@ import androidx.compose.ui.unit.dp
 import com.ollie.iptv.data.OllieSettings
 import com.ollie.iptv.ui.theme.Muted
 import com.ollie.iptv.ui.theme.Panel
+import com.ollie.iptv.ui.theme.OllieGlassPanel
 
 @Composable
 fun SettingsScreen(settings:OllieSettings,onShowLogos:(Boolean)->Unit,onShowCategory:(Boolean)->Unit,onShowRecent:(Boolean)->Unit,onCompactRows:(Boolean)->Unit,onHudTimeout:(Int)->Unit,onAddPlaylist:()->Unit,playlistContent:@Composable ()->Unit,epgContent:@Composable ()->Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(16.dp)) {
         Text("Personalise your Ollie TV experience",color=Muted)
         Section("Sources & playlists","Manage IPTV connections in one place") {
             Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -46,10 +47,14 @@ fun SettingsScreen(settings:OllieSettings,onShowLogos:(Boolean)->Unit,onShowCate
     }
 }
 @Composable private fun Section(title:String,subtitle:String,content:@Composable ColumnScope.()->Unit) {
-    Card(Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Panel)) {
+    OllieGlassPanel(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(0.dp)) {
         Column {
-            Column(Modifier.padding(horizontal=14.dp,vertical=12.dp)){Text(title,style=MaterialTheme.typography.titleMedium);Text(subtitle,color=Muted,style=MaterialTheme.typography.bodySmall)}
-            HorizontalDivider(color=MaterialTheme.colorScheme.outline.copy(alpha=.25f));content()
+            Column(Modifier.padding(horizontal=16.dp,vertical=14.dp)) {
+                Text(title,style=MaterialTheme.typography.titleMedium,fontWeight=androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Text(subtitle,color=Muted,style=MaterialTheme.typography.bodySmall)
+            }
+            HorizontalDivider(color=MaterialTheme.colorScheme.outline.copy(alpha=.55f))
+            content()
         }
     }
 }

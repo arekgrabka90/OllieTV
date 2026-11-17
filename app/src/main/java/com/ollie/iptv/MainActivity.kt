@@ -84,7 +84,13 @@ class MainActivity : ComponentActivity() {
             ExistingPeriodicWorkPolicy.KEEP,
             refreshRequest
         )
-        setContent { OllieApp() }
+        setContent {
+            com.ollie.iptv.ui.theme.OllieMaterialTheme {
+                Surface(modifier = Modifier.fillMaxSize(), color = Ink) {
+                    OllieApp()
+                }
+            }
+        }
     }
 }
 

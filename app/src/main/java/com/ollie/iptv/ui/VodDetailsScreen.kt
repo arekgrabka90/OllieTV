@@ -31,7 +31,7 @@ fun VodDetailsScreen(stream:StreamEntity,details:VodDetails?,loading:Boolean,err
             }
             else->Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(14.dp)){
                 Row(Modifier.fillMaxWidth().padding(horizontal=14.dp),horizontalArrangement=Arrangement.spacedBy(16.dp),verticalAlignment=Alignment.Top){
-                    AsyncImage(model=details.posterUrl.ifBlank{stream.logo}.takeIf{it.isNotBlank()},contentDescription="${stream.name} poster",contentScale=ContentScale.Crop,modifier=Modifier.weight(.42f).widthIn(max=150.dp).aspectRatio(2f/3f).clip(RoundedCornerShape(12.dp)).background(Panel))
+                    AsyncImage(model=details.posterUrl.ifBlank{stream.logo}.takeIf{it.isNotBlank()},contentDescription="${stream.name} poster",contentScale=ContentScale.Crop,modifier=Modifier.weight(.42f).widthIn(max=150.dp).aspectRatio(2f/3f).clip(RoundedCornerShape(18.dp)).background(Panel))
                     Column(Modifier.weight(.58f),verticalArrangement=Arrangement.spacedBy(8.dp)){
                         Text(details.title.ifBlank{stream.name},style=MaterialTheme.typography.headlineSmall)
                         if(details.releaseDate.isNotBlank())Text(details.releaseDate,color=Muted)
@@ -49,7 +49,7 @@ fun VodDetailsScreen(stream:StreamEntity,details:VodDetails?,loading:Boolean,err
                     Text("Episodes",Modifier.padding(horizontal=14.dp),style=MaterialTheme.typography.titleLarge)
                     if(details.episodes.isEmpty())Text("No episodes returned by provider.",Modifier.padding(horizontal=14.dp),color=Muted)
                     details.episodes.forEach { ep ->
-                        Surface(onClick={onPlayEpisode(ep)},color=Panel,shape=RoundedCornerShape(9.dp),modifier=Modifier.fillMaxWidth().padding(horizontal=14.dp)){
+                        Surface(onClick={onPlayEpisode(ep)},color=Panel,shape=RoundedCornerShape(16.dp),modifier=Modifier.fillMaxWidth().padding(horizontal=14.dp)){
                             Row(Modifier.padding(horizontal=12.dp,vertical=if(compactRows)8.dp else 13.dp),verticalAlignment=Alignment.CenterVertically){
                                 Column(Modifier.weight(1f)){Text(ep.name);Text(ep.category,color=Muted,style=MaterialTheme.typography.bodySmall)}
                                 Icon(Icons.Default.PlayArrow,null)

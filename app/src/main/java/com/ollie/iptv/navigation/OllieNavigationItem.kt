@@ -1,5 +1,6 @@
 package com.ollie.iptv.navigation
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,11 +39,16 @@ fun OllieNavigationItem(
     Surface(
         onClick = onClick,
         color = when {
-            selected -> Color(0xFF28313B)
-            focused -> Color(0xFF202832)
+            selected -> Color(0xD9212F3D)
+            focused -> Color(0xC91D2935)
             else -> Color.Transparent
         },
-        shape = RoundedCornerShape(10.dp),
+        border = when {
+            selected -> BorderStroke(1.dp, Color(0xFFB8D8FF).copy(alpha = .28f))
+            focused -> BorderStroke(1.dp, Color(0xFFB8D8FF).copy(alpha = .42f))
+            else -> null
+        },
+        shape = RoundedCornerShape(16.dp),
         modifier = (if (bottom) Modifier.width(68.dp).padding(horizontal = 1.dp)
             else if (compact) Modifier.width(64.dp).padding(vertical = 3.dp)
             else Modifier.fillMaxWidth().padding(vertical = 3.dp))

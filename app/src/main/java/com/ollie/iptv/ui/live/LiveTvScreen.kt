@@ -3,6 +3,7 @@ import coil.compose.AsyncImage
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -89,8 +90,9 @@ fun LiveTvScreen(
                         Surface(
                             onClick = { onPlay(channel) },
                             color = Panel,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.widthIn(min = 118.dp, max = 190.dp).height(42.dp)
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = .07f)),
+                            modifier = Modifier.widthIn(min = 118.dp, max = 190.dp).height(44.dp)
                         ) {
                             Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 if(showLogos&&channel.logo.isNotBlank())AsyncImage(model=channel.logo,contentDescription=null,contentScale=ContentScale.Crop,modifier=Modifier.size(22.dp)) else Icon(Icons.Default.Tv,null,tint=Muted,modifier=Modifier.size(16.dp))
@@ -170,11 +172,16 @@ private fun ChannelList(
             Surface(
                 onClick = { onSelect(channel) },
                 color = when {
-                    selectedId == channel.id -> Color(0xFF283746)
-                    focused -> Color(0xFF202832)
+                    selectedId == channel.id -> Color(0xE626394B)
+                    focused -> Color(0xD9212D39)
                     else -> Panel
                 },
-                shape = RoundedCornerShape(9.dp),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, when {
+                    selectedId == channel.id -> Color(0xFFB8D8FF).copy(alpha = .42f)
+                    focused -> Color(0xFFB8D8FF).copy(alpha = .24f)
+                    else -> Color.White.copy(alpha = .07f)
+                }),
                 modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }
             ) {
                 var menuExpanded by remember(channel.id) { mutableStateOf(false) }
