@@ -60,6 +60,7 @@ fun TVHubScreen(
     channelMappings: List<ChannelMappingEntity>,
     lockedChannelIds: Set<String>,
     expandedLayout: Boolean,
+    compactLayout: Boolean = false,
     onSearchChange: (String) -> Unit,
     onCategoryChange: (String) -> Unit,
     onSortChange: (LiveSortMode) -> Unit,
@@ -131,7 +132,10 @@ fun TVHubScreen(
     }
 
     val visibleChannels = when (quickFilter) {
-        "FAVORITES" -> channels.filter { it.isFavorite }
+        "FAVORITES" -> {
+            val favoriteIds = favorites.mapTo(mutableSetOf()) { it.id }
+            channels.filter { it.id in favoriteIds || it.isFavorite }
+        }
         "RECENT" -> {
             val visibleIds = channels.mapTo(mutableSetOf()) { it.id }
             recentChannels.filter { it.id in visibleIds }
@@ -186,6 +190,23 @@ fun TVHubScreen(
         Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        if (compactLayout) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Live TV", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        buildString {
+                            append("${visibleChannels.size} channels")
+                            if (selectedCategory != "All channels") {
+                                append(" · ")
+                                append(selectedCategoryName)
+                            }
+                        },
+                        color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        } else {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -236,6 +257,8 @@ fun TVHubScreen(
             }
         }
 
+
+        }
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -267,7 +290,9 @@ fun TVHubScreen(
                 value = search,
                 onValueChange = onSearchChange,
                 modifier = Modifier.weight(1f).heightIn(max = 58.dp),
-                placeholder = { Text("Search channels, IDs or programmes") },
+                placeholder = {
+                    Text(if (hubMode == "GUIDE") "Search channels or programmes" else "Search channels or IDs")
+                },
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 trailingIcon = {
                     if (search.isNotBlank()) {
@@ -286,7 +311,10 @@ fun TVHubScreen(
                 ) {
                     Icon(Icons.Default.FolderOpen, null)
                     Spacer(Modifier.width(5.dp))
-                    Text("Category", maxLines = 1)
+                    Text(
+                        if (selectedCategory == "All channels") "Category" else "Filtered",
+                        maxLines = 1
+                    )
                 }
             }
         }
@@ -355,6 +383,7 @@ fun TVHubScreen(
                 }
             }
 
+            if (!compactLayout) {
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -412,6 +441,10 @@ fun TVHubScreen(
                 }
             }
 
+
+            }
+
+            if (!compactLayout) {
             val pinnedOptions = categoryOptions
                 .filter { it.key in pinnedCategories }
                 .take(8)
@@ -437,7 +470,10 @@ fun TVHubScreen(
                 }
             }
 
-            if (showRecentChannels && recentChannels.isNotEmpty() &&
+
+            }
+
+            if (!compactLayout && showRecentChannels && recentChannels.isNotEmpty() &&
                 quickFilter != "RECENT"
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -537,7 +573,7 @@ fun TVHubScreen(
                                 locked = channel.id in lockedChannelIds,
                                 showLogos = showLogos,
                                 showCategory = showCategory,
-                                compactRows = compactRows,
+                                compactRows = compactRows || compactLayout
                                 programmes = programmesFor(channel),
                                 onClick = { onChannelClick(channel) },
                                 onFavorite = { onFavorite(channel) },
@@ -552,7 +588,7 @@ fun TVHubScreen(
                     LiveChannelDetails(
                         channel = previewChannel,
                         programmes = previewChannel?.let(::programmesFor).orEmpty(),
-                        locked = previewChannel?.id in lockedChannelIds,
+                        locked = previewChannel?.id?.let { it in lockedChannelIds } == true,
                         showLogos = showLogos,
                         onPlay = {
                             previewChannel?.let(onChannelClick)
@@ -577,7 +613,7 @@ fun TVHubScreen(
                             locked = channel.id in lockedChannelIds,
                             showLogos = showLogos,
                             showCategory = showCategory,
-                            compactRows = compactRows,
+                            compactRows = compactRows || compactLayout
                             programmes = programmesFor(channel),
                             onClick = { onChannelClick(channel) },
                             onFavorite = { onFavorite(channel) },

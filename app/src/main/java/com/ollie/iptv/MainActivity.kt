@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
@@ -29,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,11 +73,14 @@ import com.ollie.iptv.ui.theme.Muted
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.decorView.systemUiVisibility = (
+        val isPhoneWindow = resources.configuration.smallestScreenWidthDp < 600
+        window.decorView.systemUiVisibility = if (isPhoneWindow) {
+            0
+        } else {
             android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
-            android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-            android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        )
+                android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        }
         val refreshRequest = PeriodicWorkRequestBuilder<PlaylistRefreshWorker>(1, TimeUnit.HOURS)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
@@ -128,6 +133,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
     val message by vm.message.collectAsState()
     val busy by vm.busy.collectAsState()
     var tab by rememberSaveable { mutableStateOf(ScreenTab.HUB) }
+    var moreMenuExpanded by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(tab) {
         if (tab == ScreenTab.LIVE || tab == ScreenTab.GUIDE) {
             tab = ScreenTab.HUB
@@ -286,6 +292,9 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                     val windowClass = ollieWindowClassForWidth(availableWidth.value.toInt())
                     val compact = windowClass == OllieWindowClass.COMPACT
                     val medium = windowClass == OllieWindowClass.MEDIUM
+                    val reservedWidth = if (compact) 28.dp else if (medium) 154.dp else 298.dp
+                    val contentWidthDp = (availableWidth - reservedWidth).value.toInt().coerceAtLeast(0)
+                    val useTwoPaneLiveLayout = !compact && ollieUsesTwoPaneLiveLayout(contentWidthDp)
                     Row(Modifier.fillMaxSize().padding(if (compact) 14.dp else 26.dp)) {
                         if (!compact) {
                             Column(Modifier.width(if (medium) 76.dp else 220.dp).fillMaxHeight()) {
@@ -307,6 +316,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                             start = if (compact) 0.dp else 26.dp,
                             bottom = if (compact) 78.dp else 0.dp
                         )) {
+                        if (tab != ScreenTab.HUB) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(tab.label, fontSize = if (compact) 22.sp else 27.sp, fontWeight = FontWeight.Bold)
@@ -322,12 +332,21 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                 }, color = Muted, fontSize = 13.sp)
                             }
                         }
-                        Spacer(Modifier.height(14.dp))
+
+                        }                        Spacer(Modifier.height(14.dp))
                         if (tab == ScreenTab.MOVIES || tab == ScreenTab.SERIES || tab == ScreenTab.FAVORITES) {
                             OutlinedTextField(
                                 value = search, onValueChange = { search = it },
                                 modifier = Modifier.fillMaxWidth().heightIn(max = 58.dp),
-                                placeholder = { Text("Search channels and programmes") },
+                                placeholder = {
+                                    Text(
+                                        when (tab) {
+                                            ScreenTab.MOVIES -> "Search movies"
+                                            ScreenTab.SERIES -> "Search series"
+                                            else -> "Search favorites"
+                                        }
+                                    )
+                                },
                                 leadingIcon = { Icon(Icons.Default.Search, null) },
                                 singleLine = true
                             )
@@ -348,7 +367,8 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                 programmes = previewProgrammes,
                                 channelMappings = channelMappings,
                                 lockedChannelIds = lockedChannelIds,
-                                expandedLayout = ollieUsesTwoPaneLiveLayout(availableWidth.value.toInt()),
+                                expandedLayout = useTwoPaneLiveLayout,
+                                compactLayout = compact,
                                 onSearchChange = vm::setLiveSearch,
                                 onCategoryChange = vm::setLiveCategory,
                                 onSortChange = vm::setLiveSort,
@@ -376,7 +396,8 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                         onMap = vm::saveManualEpgMapping,
                                         mappings = channelMappings,
                                         reminders = scheduledProgrammeReminders,
-                                        onCancelReminder = vm::cancelProgrammeReminder
+                                        onCancelReminder = vm::cancelProgrammeReminder,
+                                        compact = compact
                                     )
                                 }
                             )
@@ -498,8 +519,13 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                         }
                         }
                         if (selected?.kind == "LIVE" && player != null) {
-                            OllieMiniPlayer(player!!, selected!!, onExpand = { playerFullscreen = true },
-                                onClose = { playerFullscreen = false; vm.stopPlayback() })
+                            OllieMiniPlayer(
+                                player = player!!,
+                                stream = selected!!,
+                                onExpand = { playerFullscreen = true },
+                                onClose = { playerFullscreen = false; vm.stopPlayback() },
+                                compact = compact
+                            )
                         }
                         message?.let {
                             Spacer(Modifier.height(8.dp))
@@ -516,12 +542,59 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                     if (compact) {
                         Row(
                             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                                .background(Panel).horizontalScroll(rememberScrollState())
+                                .background(Panel)
                                 .padding(horizontal = 4.dp, vertical = 5.dp),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            ScreenTab.values().forEach { item ->
+                            listOf(
+                                ScreenTab.HUB,
+                                ScreenTab.MOVIES,
+                                ScreenTab.SERIES,
+                                ScreenTab.FAVORITES
+                            ).forEach { item ->
                                 OllieNavigationItem(item, tab == item, bottom = true) { tab = item }
+                            }
+                            Box(Modifier.width(62.dp)) {
+                                Surface(
+                                    onClick = { moreMenuExpanded = true },
+                                    color = if (tab == ScreenTab.RECORDINGS || tab == ScreenTab.SETTINGS)
+                                        Color(0xD9212F3D) else Color.Transparent,
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        Modifier.padding(horizontal = 3.dp, vertical = 5.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.MoreHoriz, null,
+                                            tint = if (tab == ScreenTab.RECORDINGS || tab == ScreenTab.SETTINGS) Color.White else Muted
+                                        )
+                                        Text(
+                                            "More",
+                                            color = if (tab == ScreenTab.RECORDINGS || tab == ScreenTab.SETTINGS) Color.White else Muted,
+                                            fontSize = 9.sp,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                                DropdownMenu(
+                                    expanded = moreMenuExpanded,
+                                    onDismissRequest = { moreMenuExpanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Recordings") },
+                                        leadingIcon = { Icon(Icons.Default.VideoFile, null) },
+                                        onClick = { moreMenuExpanded = false; tab = ScreenTab.RECORDINGS }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Settings") },
+                                        leadingIcon = { Icon(Icons.Default.Settings, null) },
+                                        onClick = { moreMenuExpanded = false; tab = ScreenTab.SETTINGS }
+                                    )
+                                }
                             }
                         }
                     }
@@ -725,7 +798,8 @@ private fun GuideList(
     onMap: (String, String) -> Unit,
     mappings: List<ChannelMappingEntity>,
     reminders: List<ProgrammeReminderEntity>,
-    onCancelReminder: (ProgrammeReminderEntity) -> Unit
+    onCancelReminder: (ProgrammeReminderEntity) -> Unit,
+    compact: Boolean = false
 ) {
     var selectedProgramme by remember { mutableStateOf<ProgrammeEntity?>(null) }
     var selectedChannel by remember { mutableStateOf<StreamEntity?>(null) }
@@ -754,6 +828,25 @@ private fun GuideList(
     }
     if (channels.isEmpty()) { EmptyState("No channels", "Import a playlist first."); return }
 
+    if (compact) {
+        CompactGuideList(
+            channels = visibleChannels,
+            programmesByChannel = programmesByChannel,
+            mappingByStream = mappingByStream,
+            dayStart = dayStart,
+            dayEnd = dayEnd,
+            dayLabel = dayLabel,
+            reminders = reminders,
+            onDayChange = onDayChange,
+            onPlay = onPlay,
+            onProgrammeSelected = { channel, programme ->
+                selectedProgramme = programme
+                selectedChannel = channel
+            },
+            onMapChannel = { mappingChannel = it },
+            onCancelReminder = onCancelReminder
+        )
+    } else {
     Column(Modifier.fillMaxSize()) {
         if (reminders.isNotEmpty()) {
             Text("UPCOMING REMINDERS", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -853,6 +946,7 @@ private fun GuideList(
             }
         }
     }
+    }
 
     mappingChannel?.let { channel ->
         val suggestions = remember(channel.id, epgChannels) { EpgMatching.suggest(channel, epgChannels) }
@@ -911,6 +1005,121 @@ private fun GuideList(
                 }
             }
         )
+    }
+}
+
+
+@Composable
+private fun CompactGuideList(
+    channels: List<StreamEntity>,
+    programmesByChannel: Map<String, List<ProgrammeEntity>>,
+    mappingByStream: Map<String, ChannelMappingEntity>,
+    dayStart: Long,
+    dayEnd: Long,
+    dayLabel: String,
+    reminders: List<ProgrammeReminderEntity>,
+    onDayChange: (Int) -> Unit,
+    onPlay: (StreamEntity) -> Unit,
+    onProgrammeSelected: (StreamEntity, ProgrammeEntity) -> Unit,
+    onMapChannel: (StreamEntity) -> Unit,
+    onCancelReminder: (ProgrammeReminderEntity) -> Unit
+) {
+    val now = System.currentTimeMillis()
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (reminders.isNotEmpty()) {
+            val reminder = reminders.first()
+            Row(
+                Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("UPCOMING REMINDER", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${reminder.programmeTitle} · ${reminder.minutesBefore} min",
+                        color = Color.White, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+                TextButton(onClick = { onCancelReminder(reminder) }) { Text("Cancel") }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            IconButton(onClick = { onDayChange(-1) }) { Icon(Icons.Default.ChevronLeft, "Previous day") }
+            Text(dayLabel, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1)
+            TextButton(onClick = { onDayChange(0) }) { Text("Today") }
+            IconButton(onClick = { onDayChange(1) }) { Icon(Icons.Default.ChevronRight, "Next day") }
+        }
+        LazyColumn(
+            Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+            contentPadding = PaddingValues(bottom = 10.dp)
+        ) {
+            items(channels, key = { it.id }) { channel ->
+                val epgId = mappingByStream[channel.id]?.xmltvChannelId?.takeIf { it.isNotBlank() } ?: channel.tvgId
+                val channelProgrammes = programmesByChannel[epgId].orEmpty()
+                    .filter { it.startUtc < dayEnd && it.endUtc > dayStart }
+                    .sortedBy { it.startUtc }
+                val current = channelProgrammes.firstOrNull { now >= it.startUtc && now < it.endUtc }
+                val next = channelProgrammes.firstOrNull { it.startUtc >= (current?.endUtc ?: now) }
+                Surface(
+                    color = Panel,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = .07f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(channel.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(channel.category, color = Muted, fontSize = 10.sp, maxLines = 1)
+                            }
+                            TextButton(onClick = { onMapChannel(channel) }, contentPadding = PaddingValues(horizontal = 5.dp)) {
+                                Text("EPG map", fontSize = 11.sp)
+                            }
+                        }
+                        if (current != null) {
+                            Surface(
+                                onClick = { onProgrammeSelected(channel, current) },
+                                color = Color(0xFF26394B),
+                                shape = RoundedCornerShape(9.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("NOW", color = Color(0xFFB8D8FF), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                    Text(current.title, color = Color.White, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        "${java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(current.startUtc))} – ${java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(current.endUtc))}",
+                                        color = Muted, fontSize = 10.sp
+                                    )
+                                    val progress = ((now - current.startUtc).toFloat() / (current.endUtc - current.startUtc).coerceAtLeast(1L)).coerceIn(0f, 1f)
+                                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                                }
+                            }
+                        } else {
+                            Text("No current programme data", color = Muted, fontSize = 11.sp)
+                        }
+                        if (next != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("NEXT", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(7.dp))
+                                Text(next.title, color = Color.White, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        TextButton(onClick = { onPlay(channel) }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Watch channel")
+                        }
+                    }
+                }
+            }
+            if (channels.isEmpty()) {
+                item { EmptyState("No matching channels", "Try another search or import an EPG source.") }
+            }
+        }
     }
 }
 
