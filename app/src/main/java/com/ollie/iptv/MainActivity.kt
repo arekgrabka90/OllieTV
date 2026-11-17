@@ -14,6 +14,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -322,7 +323,10 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                             }
                         }
 
-                        }                        Spacer(Modifier.height(14.dp))
+                        } else {
+                            // The HUB dashboard provides its own title and summary.
+                        }
+                        Spacer(Modifier.height(14.dp))
                         if (tab == ScreenTab.MOVIES || tab == ScreenTab.SERIES || tab == ScreenTab.FAVORITES) {
                             OutlinedTextField(
                                 value = search, onValueChange = { search = it },
