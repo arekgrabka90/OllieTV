@@ -128,6 +128,11 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
     val message by vm.message.collectAsState()
     val busy by vm.busy.collectAsState()
     var tab by rememberSaveable { mutableStateOf(ScreenTab.HUB) }
+    LaunchedEffect(tab) {
+        if (tab == ScreenTab.LIVE || tab == ScreenTab.GUIDE) {
+            tab = ScreenTab.HUB
+        }
+    }
     var playerFullscreen by rememberSaveable { mutableStateOf(false) }
     var dialog by rememberSaveable { mutableStateOf("") }
     var search by rememberSaveable { mutableStateOf("") }
@@ -144,7 +149,6 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
     val vodDetails by vm.vodDetails.collectAsState()
     val vodDetailsLoading by vm.vodDetailsLoading.collectAsState()
     val vodDetailsError by vm.vodDetailsError.collectAsState()
-    LaunchedEffect(search) { vm.setLiveSearch(search) }
     var catchupTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     val catchupTarget = live.firstOrNull { it.id == catchupTargetId }
     var scheduleDialog by rememberSaveable { mutableStateOf(false) }
@@ -292,7 +296,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                 } else {
                                     Spacer(Modifier.height(8.dp))
                                 }
-                                ScreenTab.values().forEach { item ->
+                                ScreenTab.values().filterNot { it == ScreenTab.LIVE || it == ScreenTab.GUIDE }.forEach { item ->
                                     OllieNavigationItem(item, tab == item, compact = medium) { tab = item }
                                 }
                                 Spacer(Modifier.weight(1f))
@@ -319,7 +323,7 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                             }
                         }
                         Spacer(Modifier.height(14.dp))
-                        if (tab == ScreenTab.GUIDE || tab == ScreenTab.MOVIES || tab == ScreenTab.SERIES || tab == ScreenTab.FAVORITES) {
+                        if (tab == ScreenTab.MOVIES || tab == ScreenTab.SERIES || tab == ScreenTab.FAVORITES) {
                             OutlinedTextField(
                                 value = search, onValueChange = { search = it },
                                 modifier = Modifier.fillMaxWidth().heightIn(max = 58.dp),
@@ -332,34 +336,53 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                         when (tab) {
                             ScreenTab.HUB -> TVHubScreen(
-                                channels = filteredLive, recentChannels = recentChannels, favorites = favorites,
-                                categories = liveCategories, selectedCategory = liveCategory, selectedChannel = selected,
-                                programmes = previewProgrammes, channelMappings = channelMappings,
-                                onCategoryChange = vm::setLiveCategory, onChannelClick = handleChannelClick
-                            )
-                            ScreenTab.LIVE -> LiveTvScreen(
                                 channels = filteredLive,
+                                allChannels = live,
                                 recentChannels = recentChannels,
-                                categories = liveCategories,
+                                favorites = favorites.filter { it.kind == "LIVE" },
+                                playlists = playlists,
                                 selectedCategory = liveCategory,
+                                selectedChannel = selected?.takeIf { it.kind == "LIVE" },
                                 search = liveSearch,
                                 sortMode = liveSort,
                                 programmes = previewProgrammes,
                                 channelMappings = channelMappings,
                                 lockedChannelIds = lockedChannelIds,
                                 expandedLayout = ollieUsesTwoPaneLiveLayout(availableWidth.value.toInt()),
-                                onSearchChange = { search = it; vm.setLiveSearch(it) },
+                                onSearchChange = vm::setLiveSearch,
                                 onCategoryChange = vm::setLiveCategory,
                                 onSortChange = vm::setLiveSort,
-                                onPlay = handleChannelClick,
+                                onChannelClick = handleChannelClick,
                                 onFavorite = vm::toggleFavorite,
                                 onLockToggle = vm::requestChannelLockToggle,
                                 onAddToGroup = { stream ->
                                     groupTargetStreamId = stream.id
                                     groupPickerVisible = true
                                 },
-                                showLogos=settings.showChannelLogos,showCategory=settings.showChannelCategory,
-                                showRecentChannels=settings.showRecentChannels,compactRows=settings.compactRows
+                                showLogos = settings.showChannelLogos,
+                                showCategory = settings.showChannelCategory,
+                                showRecentChannels = settings.showRecentChannels,
+                                compactRows = settings.compactRows,
+                                guideContent = {
+                                    GuideList(
+                                        channels = live,
+                                        programmes = guideProgrammes,
+                                        query = liveSearch,
+                                        dayOffset = guideDayOffset,
+                                        onDayChange = vm::loadGuideDay,
+                                        onPlay = handleChannelClick,
+                                        onReminder = scheduleProgrammeReminder,
+                                        epgChannels = epgChannels,
+                                        onMap = vm::saveManualEpgMapping,
+                                        mappings = channelMappings,
+                                        reminders = scheduledProgrammeReminders,
+                                        onCancelReminder = vm::cancelProgrammeReminder
+                                    )
+                                }
+                            )
+                            ScreenTab.LIVE, ScreenTab.GUIDE -> EmptyState(
+                                "Live TV is part of Live Hub",
+                                "Open Live Hub to browse channels and the programme guide."
                             )
                             ScreenTab.MOVIES -> StreamList(movies.filter { it.name.contains(search,true) },vm::requestPlay,vm::toggleFavorite,
                                 onDetails={detailTargetId=it.id;vm.loadVodDetails(it)},showLogos=settings.showChannelLogos,compactRows=settings.compactRows)
@@ -412,14 +435,6 @@ private fun OllieApp(vm: MainViewModel = viewModel()) {
                                     }
                                 )
                             }
-                            ScreenTab.GUIDE -> GuideList(
-                                channels = live, programmes = guideProgrammes, query = search,
-                                dayOffset = guideDayOffset, onDayChange = vm::loadGuideDay,
-                                onPlay = handleChannelClick, onReminder = scheduleProgrammeReminder,
-                                epgChannels = epgChannels, onMap = vm::saveManualEpgMapping,
-                                mappings = channelMappings, reminders = scheduledProgrammeReminders,
-                                onCancelReminder = vm::cancelProgrammeReminder
-                            )
                             ScreenTab.SETTINGS -> SettingsScreen(
                                 settings = settings, onShowLogos = vm::setShowChannelLogos,
                                 onShowCategory = vm::setShowChannelCategory, onShowRecent = vm::setShowRecentChannels,
